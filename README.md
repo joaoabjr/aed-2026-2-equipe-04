@@ -4,15 +4,14 @@
 
 **Líder do projeto:** Paulo Cidrão Gomes Torres (258172)
 
-| Nome completo                     | Matrícula | Usuário GitHub |
-|-----------------------------------|---|---|
+| Nome completo | Matrícula | Usuário GitHub |
+|---|---|---|
 | Paulo Cidrão Gomes Torres (líder) | 258172 | 1668392 |
-| João Almeida Barbosa Júnior       | 256355 | joaoabjr |
+| João Almeida Barbosa Júnior | 256355 | joaoabjr |
+| João Pedro Schlindwein | 255485 | Joao-Schlindwein |
 | João Pedro Correia Barros         | 254580 | joaobarros1 |
 | Nome Completo 4                   | 0000000 | 0000000 |
 | Nome Completo 5                   | 0000000 | 0000000 |
-| Nome Completo 6                   | 0000000 | 0000000 |
-| Nome Completo 7                   | 0000000 | 0000000 |
 
 ## O domínio, em uma frase
 Descrição do processo de negócio escolhido, em uma frase: <br>
