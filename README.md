@@ -11,7 +11,7 @@
 | João Pedro Schlindwein            |   255485  | Joao-Schlindwein |
 | João Pedro Correia Barros         |   254580  |     joaobarros1  |
 | Matheus Chaves Ferreira           |   258071  |     258071       |
-| Nome Completo 6                   |   000000  |     0000000      |
+| Rafael Corrêa Zart                |   255553  |     1665760      |
 | Nome Completo 7                   |   000000  |     0000000      |
 
 ## O domínio, em uma frase
