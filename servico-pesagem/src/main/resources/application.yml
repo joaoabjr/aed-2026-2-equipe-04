@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: servico-pesagem
+  kafka:
+    bootstrap-servers: localhost:19092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # value-serializer e configurado programaticamente em PesagemConfig,
+      # para injetar o ObjectMapper com JavaTimeModule (datas em ISO-8601,
+      # nunca epoch — ver checklist item 4 do enunciado).
+
+# nome do topico == grafia do atributo CloudEvents "type": dominio.entidade.fato.v1
+demo:
+  topico: gado.animal.pesagem-registrada.v1

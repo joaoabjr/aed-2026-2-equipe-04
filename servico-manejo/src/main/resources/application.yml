@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: servico-manejo
+  datasource:
+    url: jdbc:postgresql://localhost:15432/aed
+    username: aed
+    password: aed
+  sql:
+    init:
+      mode: always
+  kafka:
+    bootstrap-servers: localhost:19092
+    consumer:
+      group-id: manejo
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # value-deserializer e configurado programaticamente em ManejoConfig,
+      # para injetar o mesmo ObjectMapper ISO-8601 usado no producer.
+    listener:
+      ack-mode: manual
+
+demo:
+  topico: gado.animal.pesagem-registrada.v1

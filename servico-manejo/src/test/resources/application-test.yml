@@ -1,0 +1,24 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:manejo;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  sql:
+    init:
+      mode: always
+  # Desliga a autoconfiguracao do Kafka NESTE teste: sem isso, o
+  # @KafkaListener seria registrado e o container tentaria conectar de
+  # verdade a um broker inexistente assim que o contexto subisse. O teste
+  # aqui e de SERVICE (HistoricoPesagemService + repositorio), nao do
+  # listener - por isso dispensa Kafka de verdade, so precisa do H2.
+  # (os beans do ManejoConfig ainda sao criados, so nao sobem container.)
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+  kafka:
+    bootstrap-servers: localhost:9999 # nunca conectado neste teste; so satisfaz o @Value
+    consumer:
+      group-id: manejo-test
+
+demo:
+  topico: gado.animal.pesagem-registrada.v1
