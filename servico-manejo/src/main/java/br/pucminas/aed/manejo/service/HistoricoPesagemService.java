@@ -1,66 +1,51 @@
-package br.pucminas.aed.manejo.domain;
+package br.pucminas.aed.manejo.service;
 
-import java.time.Instant;
-import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import br.pucminas.aed.manejo.domain.PesagemRegistradaEvent;
 
 /**
- * A visao QUE ESTE SERVICO TEM do evento PesagemRegistrada.
+ * O coracao da idempotencia deste servico.
  *
- * O publisher publica eventoId, ocorridoEm, animalId, pesoKg E
- * metodoDePesagem. Esta classe NAO declara metodoDePesagem: o servico de
- * manejo decide dieta e formacao de lote a partir do peso, nao de qual
- * balanca foi usada — essa informacao interessa a auditoria/qualidade, nao a
- * este consumidor. Campo desconhecido no JSON e ignorado
- * (@JsonIgnoreProperties), o que permite ao publisher acrescentar campos
- * novos sem quebrar este consumidor.
+ * O registro da chave de deduplicacao e o efeito de negocio (anexar a
+ * pesagem ao historico) precisam estar na MESMA transacao — se estivessem
+ * em transacoes separadas, existiria uma janela em que o processo morre
+ * entre as duas e o evento seria reprocessado, exatamente o que se quer
+ * evitar.
  *
- * Declare so o que voce usa. Cada campo declarado e uma dependencia sobre o
- * formato alheio.
+ * @Transactional fica AQUI, nao no listener: assim o ack do offset (que
+ * acontece no listener) so ocorre depois que este commit terminou.
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
-public final class PesagemRegistradaEvent {
+@Service
+public class HistoricoPesagemService {
 
-    private final String eventoId;
-    private final Instant ocorridoEm;
-    private final String animalId;
-    private final double pesoKg;
+    private static final Logger log = LoggerFactory.getLogger(HistoricoPesagemService.class);
 
-    @JsonCreator
-    public PesagemRegistradaEvent(@JsonProperty("eventoId") String eventoId,
-                                  @JsonProperty("ocorridoEm") Instant ocorridoEm,
-                                  @JsonProperty("animalId") String animalId,
-                                  @JsonProperty("pesoKg") double pesoKg) {
+    private final HistoricoPesagemRepository repositorio;
 
-        this.eventoId = Objects.requireNonNull(eventoId, "eventoId e obrigatorio");
-        this.ocorridoEm = Objects.requireNonNull(ocorridoEm, "ocorridoEm e obrigatorio");
-        this.animalId = Objects.requireNonNull(animalId, "animalId e obrigatorio");
-        this.pesoKg = pesoKg;
+    public HistoricoPesagemService(HistoricoPesagemRepository repositorio) {
+        this.repositorio = repositorio;
     }
 
-    public String getEventoId() {
-        return eventoId;
-    }
+    /**
+     * @return true se o efeito de negocio foi aplicado; false se era duplicata.
+     */
+    @Transactional
+    public boolean processar(String eventoId, PesagemRegistradaEvent evento) {
 
-    public Instant getOcorridoEm() {
-        return ocorridoEm;
-    }
+        boolean primeiraVez = repositorio.registrarEventoSeNovo(eventoId);
+        if (!primeiraVez) {
+            log.info("evento {} JA PROCESSADO, descartando em silencio", eventoId);
+            return false;
+        }
 
-    public String getAnimalId() {
-        return animalId;
-    }
+        repositorio.registrarPesagem(evento.getAnimalId(), evento.getPesoKg(), evento.getOcorridoEm());
 
-    public double getPesoKg() {
-        return pesoKg;
-    }
-
-    @Override
-    public String toString() {
-        return "ManejoRegistradoEvent{eventoId=" + eventoId
-                + ", animalId=" + animalId
-                + ", manejo=" + pesoKg + "}";
+        log.info("pesagem registrada  evento={}  animal={}  pesoKg={}",
+                eventoId, evento.getAnimalId(), evento.getPesoKg());
+        return true;
     }
 }

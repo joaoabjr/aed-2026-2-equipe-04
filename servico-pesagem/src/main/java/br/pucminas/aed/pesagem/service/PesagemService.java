@@ -1,66 +1,72 @@
-package br.pucminas.aed.manejo.domain;
+package br.pucminas.aed.pesagem.service;
 
-import java.time.Instant;
-import java.util.Objects;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.internals.RecordHeader;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
+import org.springframework.stereotype.Service;
+
+import br.pucminas.aed.pesagem.domain.PesagemRegistradaEvent;
 
 /**
- * A visao QUE ESTE SERVICO TEM do evento PesagemRegistrada.
+ * Monta o envelope CloudEvents 1.0 em MODO BINARIO: os atributos ce_* vao nos
+ * cabecalhos da mensagem, o corpo carrega so o fato de negocio (data).
  *
- * O publisher publica eventoId, ocorridoEm, animalId, pesoKg E
- * metodoDePesagem. Esta classe NAO declara metodoDePesagem: o servico de
- * manejo decide dieta e formacao de lote a partir do peso, nao de qual
- * balanca foi usada — essa informacao interessa a auditoria/qualidade, nao a
- * este consumidor. Campo desconhecido no JSON e ignorado
- * (@JsonIgnoreProperties), o que permite ao publisher acrescentar campos
- * novos sem quebrar este consumidor.
+ * Os quatro obrigatorios (specversion, id, source, type) mais time (quando o
+ * FATO aconteceu, nao quando o broker recebeu). subject e datacontenttype sao
+ * opcionais no CloudEvents mas baratos de incluir: subject identifica o
+ * recurso de forma legivel sem abrir o corpo ("animal/AN-004821"), e
+ * datacontenttype documenta o formato da carga para quem so olha o cabecalho.
  *
- * Declare so o que voce usa. Cada campo declarado e uma dependencia sobre o
- * formato alheio.
+ * A CHAVE DE PARTICAO e animalId: e a menor unidade cuja ordem o negocio
+ * exige — duas pesagens do MESMO animal precisam chegar ao consumidor na
+ * ordem em que aconteceram (a curva de peso depende disso). Pesagens de
+ * animais diferentes podem ser processadas fora de ordem entre si sem
+ * problema, por isso nao precisamos de uma so particao para o topico inteiro.
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
-public final class PesagemRegistradaEvent {
+@Service
+public class PesagemService {
 
-    private final String eventoId;
-    private final Instant ocorridoEm;
-    private final String animalId;
-    private final double pesoKg;
+    private static final String TYPE = "gado.animal.pesagem-registrada.v1";
+    private static final String SOURCE = "/fazenda-corte/pesagem-service";
 
-    @JsonCreator
-    public PesagemRegistradaEvent(@JsonProperty("eventoId") String eventoId,
-                                  @JsonProperty("ocorridoEm") Instant ocorridoEm,
-                                  @JsonProperty("animalId") String animalId,
-                                  @JsonProperty("pesoKg") double pesoKg) {
+    private final KafkaTemplate<String, PesagemRegistradaEvent> kafkaTemplate;
+    private final PesagemCallbackService callbackService;
+    private final String topico;
 
-        this.eventoId = Objects.requireNonNull(eventoId, "eventoId e obrigatorio");
-        this.ocorridoEm = Objects.requireNonNull(ocorridoEm, "ocorridoEm e obrigatorio");
-        this.animalId = Objects.requireNonNull(animalId, "animalId e obrigatorio");
-        this.pesoKg = pesoKg;
+    public PesagemService(KafkaTemplate<String, PesagemRegistradaEvent> kafkaTemplate,
+                           PesagemCallbackService callbackService,
+                           @Value("${demo.topico}") String topico) {
+        this.kafkaTemplate = kafkaTemplate;
+        this.callbackService = callbackService;
+        this.topico = topico;
     }
 
-    public String getEventoId() {
-        return eventoId;
+    public void publicar(PesagemRegistradaEvent evento) {
+
+        ProducerRecord<String, PesagemRegistradaEvent> registro =
+                new ProducerRecord<String, PesagemRegistradaEvent>(topico, evento.getAnimalId(), evento);
+
+        adicionarCabecalho(registro, "ce_specversion", "1.0");
+        adicionarCabecalho(registro, "ce_id", evento.getEventoId());
+        adicionarCabecalho(registro, "ce_source", SOURCE);
+        adicionarCabecalho(registro, "ce_type", TYPE);
+        adicionarCabecalho(registro, "ce_time", evento.getOcorridoEm().toString());
+        adicionarCabecalho(registro, "ce_subject", "animal/" + evento.getAnimalId());
+        adicionarCabecalho(registro, "ce_datacontenttype", "application/json");
+
+        CompletableFuture<SendResult<String, PesagemRegistradaEvent>> resultadoFuturo =
+                kafkaTemplate.send(registro);
+
+        callbackService.tratar(resultadoFuturo, evento.getEventoId());
     }
 
-    public Instant getOcorridoEm() {
-        return ocorridoEm;
-    }
-
-    public String getAnimalId() {
-        return animalId;
-    }
-
-    public double getPesoKg() {
-        return pesoKg;
-    }
-
-    @Override
-    public String toString() {
-        return "ManejoRegistradoEvent{eventoId=" + eventoId
-                + ", animalId=" + animalId
-                + ", manejo=" + pesoKg + "}";
+    private void adicionarCabecalho(ProducerRecord<String, PesagemRegistradaEvent> registro,
+                                     String nome, String valor) {
+        registro.headers().add(new RecordHeader(nome, valor.getBytes(StandardCharsets.UTF_8)));
     }
 }

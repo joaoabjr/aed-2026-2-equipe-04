@@ -1,72 +1,68 @@
-package br.pucminas.aed.pesagem.service;
+package br.pucminas.aed.manejo.service;
 
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.CompletableFuture;
+import java.time.Instant;
+import java.util.List;
 
-import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.header.internals.RecordHeader;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.support.SendResult;
-import org.springframework.stereotype.Service;
-
-import br.pucminas.aed.pesagem.domain.PesagemRegistradaEvent;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Repository;
 
 /**
- * Monta o envelope CloudEvents 1.0 em MODO BINARIO: os atributos ce_* vao nos
- * cabecalhos da mensagem, o corpo carrega so o fato de negocio (data).
+ * A porta de saida para as DUAS tabelas do schema.sql.
  *
- * Os quatro obrigatorios (specversion, id, source, type) mais time (quando o
- * FATO aconteceu, nao quando o broker recebeu). subject e datacontenttype sao
- * opcionais no CloudEvents mas baratos de incluir: subject identifica o
- * recurso de forma legivel sem abrir o corpo ("animal/AN-004821"), e
- * datacontenttype documenta o formato da carga para quem so olha o cabecalho.
+ * evento_processado e a memoria da idempotencia: quem ja viu o evento (por
+ * eventoId) nao e processado de novo. historico_pesagem e o efeito de
+ * negocio, append-only — cada leitura de peso fica guardada, em ordem, para
+ * sustentar a curva de ganho de peso.
  *
- * A CHAVE DE PARTICAO e animalId: e a menor unidade cuja ordem o negocio
- * exige — duas pesagens do MESMO animal precisam chegar ao consumidor na
- * ordem em que aconteceram (a curva de peso depende disso). Pesagens de
- * animais diferentes podem ser processadas fora de ordem entre si sem
- * problema, por isso nao precisamos de uma so particao para o topico inteiro.
+ * registrarEventoSeNovo e a chave da deduplicacao: tenta INSERT, e a
+ * PRIMARY KEY de evento_processado (evento_id) e quem barra a duplicata via
+ * DuplicateKeyException — sem SELECT primeiro (a corrida entre dois
+ * consumidores da mesma particao ficaria visivel, e o ADR-002 pede dedup
+ * por eventoId, nunca por animalId).
  */
-@Service
-public class PesagemService {
+@Repository
+public class HistoricoPesagemRepository {
 
-    private static final String TYPE = "gado.animal.pesagem-registrada.v1";
-    private static final String SOURCE = "/fazenda-corte/pesagem-service";
+    private final JdbcTemplate jdbcTemplate;
 
-    private final KafkaTemplate<String, PesagemRegistradaEvent> kafkaTemplate;
-    private final PesagemCallbackService callbackService;
-    private final String topico;
-
-    public PesagemService(KafkaTemplate<String, PesagemRegistradaEvent> kafkaTemplate,
-                           PesagemCallbackService callbackService,
-                           @Value("${demo.topico}") String topico) {
-        this.kafkaTemplate = kafkaTemplate;
-        this.callbackService = callbackService;
-        this.topico = topico;
+    public HistoricoPesagemRepository(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
     }
 
-    public void publicar(PesagemRegistradaEvent evento) {
-
-        ProducerRecord<String, PesagemRegistradaEvent> registro =
-                new ProducerRecord<String, PesagemRegistradaEvent>(topico, evento.getAnimalId(), evento);
-
-        adicionarCabecalho(registro, "ce_specversion", "1.0");
-        adicionarCabecalho(registro, "ce_id", evento.getEventoId());
-        adicionarCabecalho(registro, "ce_source", SOURCE);
-        adicionarCabecalho(registro, "ce_type", TYPE);
-        adicionarCabecalho(registro, "ce_time", evento.getOcorridoEm().toString());
-        adicionarCabecalho(registro, "ce_subject", "animal/" + evento.getAnimalId());
-        adicionarCabecalho(registro, "ce_datacontenttype", "application/json");
-
-        CompletableFuture<SendResult<String, PesagemRegistradaEvent>> resultadoFuturo =
-                kafkaTemplate.send(registro);
-
-        callbackService.tratar(resultadoFuturo, evento.getEventoId());
+    /**
+     * @return true se o evento e novo (INSERT vingou); false se ja era conhecido.
+     */
+    public boolean registrarEventoSeNovo(String eventoId) {
+        try {
+            jdbcTemplate.update("INSERT INTO evento_processado (evento_id) VALUES (?)", eventoId);
+            return true;
+        } catch (DuplicateKeyException e) {
+            return false;
+        }
     }
 
-    private void adicionarCabecalho(ProducerRecord<String, PesagemRegistradaEvent> registro,
-                                     String nome, String valor) {
-        registro.headers().add(new RecordHeader(nome, valor.getBytes(StandardCharsets.UTF_8)));
+    public void registrarPesagem(String animalId, double pesoKg, Instant registradoEm) {
+        jdbcTemplate.update(
+                "INSERT INTO historico_pesagem (animal_id, peso_kg, registrado_em) VALUES (?, ?, ?)",
+                animalId, pesoKg, registradoEm);
+    }
+
+    public long contarRegistrosDoAnimal(String animalId) {
+        Long total = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM historico_pesagem WHERE animal_id = ?",
+                Long.class, animalId);
+        return total == null ? 0L : total;
+    }
+
+    public List<Double> historicoDePeso(String animalId) {
+        return jdbcTemplate.queryForList(
+                "SELECT peso_kg FROM historico_pesagem WHERE animal_id = ? ORDER BY registrado_em, id",
+                Double.class, animalId);
+    }
+
+    public void limparTudo() {
+        jdbcTemplate.update("DELETE FROM historico_pesagem");
+        jdbcTemplate.update("DELETE FROM evento_processado");
     }
 }

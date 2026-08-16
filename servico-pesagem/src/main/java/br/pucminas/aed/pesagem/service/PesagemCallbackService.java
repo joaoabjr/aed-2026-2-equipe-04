@@ -1,51 +1,44 @@
-package br.pucminas.aed.manejo.service;
+package br.pucminas.aed.pesagem.service;
+
+import java.util.concurrent.CompletableFuture;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import br.pucminas.aed.manejo.domain.PesagemRegistradaEvent;
+import br.pucminas.aed.pesagem.domain.PesagemRegistradaEvent;
 
 /**
- * O coracao da idempotencia deste servico.
+ * Trata o resultado assincrono do envio ao Kafka.
  *
- * O registro da chave de deduplicacao e o efeito de negocio (anexar a
- * pesagem ao historico) precisam estar na MESMA transacao — se estivessem
- * em transacoes separadas, existiria uma janela em que o processo morre
- * entre as duas e o evento seria reprocessado, exatamente o que se quer
- * evitar.
+ * O send() do KafkaTemplate retorna imediatamente um CompletableFuture; o
+ * erro de broker pode acontecer bem depois da resposta 202 do controller. E
+ * aqui que ele aparece: quando a promessa completa com falha, o evento NAO
+ * foi publicado e o operador precisa ver o motivo no log — silenciar esse
+ * caso faria a balanca "aceitar" uma pesagem que nunca chegou ao consumidor.
  *
- * @Transactional fica AQUI, nao no listener: assim o ack do offset (que
- * acontece no listener) so ocorre depois que este commit terminou.
+ * Sucesso tambem e logado, com particao e offset, para dar rastreabilidade
+ * do evento no topico.
  */
 @Service
-public class HistoricoPesagemService {
+public class PesagemCallbackService {
 
-    private static final Logger log = LoggerFactory.getLogger(HistoricoPesagemService.class);
+    private static final Logger log = LoggerFactory.getLogger(PesagemCallbackService.class);
 
-    private final HistoricoPesagemRepository repositorio;
+    public void tratar(CompletableFuture<SendResult<String, PesagemRegistradaEvent>> resultadoFuturo,
+                       String eventoId) {
 
-    public HistoricoPesagemService(HistoricoPesagemRepository repositorio) {
-        this.repositorio = repositorio;
-    }
-
-    /**
-     * @return true se o efeito de negocio foi aplicado; false se era duplicata.
-     */
-    @Transactional
-    public boolean processar(String eventoId, PesagemRegistradaEvent evento) {
-
-        boolean primeiraVez = repositorio.registrarEventoSeNovo(eventoId);
-        if (!primeiraVez) {
-            log.info("evento {} JA PROCESSADO, descartando em silencio", eventoId);
-            return false;
-        }
-
-        repositorio.registrarPesagem(evento.getAnimalId(), evento.getPesoKg(), evento.getOcorridoEm());
-
-        log.info("pesagem registrada  evento={}  animal={}  pesoKg={}",
-                eventoId, evento.getAnimalId(), evento.getPesoKg());
-        return true;
+        resultadoFuturo.whenComplete((resultado, erro) -> {
+            if (erro != null) {
+                log.error("FALHA ao publicar evento {} no topico: {}", eventoId, erro.getMessage(), erro);
+                return;
+            }
+            log.info("evento {} publicado  topico={}  particao={}  offset={}",
+                    eventoId,
+                    resultado.getRecordMetadata().topic(),
+                    resultado.getRecordMetadata().partition(),
+                    resultado.getRecordMetadata().offset());
+        });
     }
 }
