@@ -8,7 +8,7 @@
 |---|---|---|
 | Paulo Cidrão Gomes Torres (líder) | 258172 | 1668392 |
 | João Almeida Barbosa Júnior | 256355 | joaoabjr |
-| Nome Completo 3 | 0000000 | 0000000 |
+| João Pedro Schlindwein | 255485 | Joao-Schlindwein |
 | Nome Completo 4 | 0000000 | 0000000 |
 | Nome Completo 5 | 0000000 | 0000000 |
 | Nome Completo 6 | 0000000 | 0000000 |
