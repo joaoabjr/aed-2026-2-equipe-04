@@ -3,3 +3,4 @@
 ## Integrantes
 
 Paulo Cidrão Gomes Torres - Matrícula 258172
+João Almeida Barbosa Júnior - Matrícula 256355
