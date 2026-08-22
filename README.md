@@ -27,7 +27,7 @@ Detalhes, critérios de aceitação e alternativas recusadas estão em [`docs/ad
 - Docker Compose
 
 ## Estrutura do repositório
-
+ 
 ```
 aed-2026-2-equipe-04/
 ├── README.md                                  este arquivo
@@ -37,8 +37,9 @@ aed-2026-2-equipe-04/
 │   ├── entregas/
 │   │   └── aula-02.md                          folha de rosto desta entrega
 │   └── IA.md                                   registro de uso de IA (## Aula 02, ## Aula 03, ...)
-├── servico-pesagem/                           serviço produtor (publisher)
-└── servico-manejo/                            serviço consumidor (consumer)
+├── servico-pesagem/                           serviço publisher (pesagem)
+├── servico-manejo/                            serviço consumidor (historico de peso)
+└── servico-vacinacao/                         serviço publisher (vacina)
 ```
 
 ## Portas
@@ -49,6 +50,7 @@ aed-2026-2-equipe-04/
 | `15432` | Postgres (docker-compose) | banco do servico-manejo |
 | `8081` | Kafka UI (docker-compose) | inspeção de tópicos/partições/mensagens (`http://localhost:8081`) |
 | `8080` | servico-pesagem | API REST do publisher (`POST /pesagens`) |
+| `8085` | servico-vacinacao | API REST do vaccination service (`POST /vacinacao`) |
 | — | servico-manejo | sem porta web de propósito: é consumidor |
 
 ## Como subir o projeto numa máquina limpa
@@ -101,11 +103,43 @@ mvn spring-boot:run
 cd servico-manejo && mvn test
 ```
 
+## Como rodar o servico-vacinacao
+
+O serviço de vacinação roda na porta 8085 e publica eventos no tópico Kafka `gado.animal.vacinacao-registrada.v1`.
+
+```bash
+# build
+cd servico-vacinacao && mvn clean package
+
+# rodar (inicie o docker compose primeiro: docker compose up -d)
+java -jar target/servico-vacinacao-1.0.jar
+```
+
+Publica um evento de vacinação com um `curl`:
+
+```bash
+curl -X POST http://localhost:8085/vacinacao \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventoId": "evt-001",
+    "animalId": "AN001",
+    "ocorridoEm": "2026-08-21T10:30:00Z",
+    "pesoKg": 550.0,
+    "metodoDeVacinacao": "subcutanea",
+    "vacina": "Febre Aftosa",
+    "validade": "2026-12-31T23:59:59Z"
+  }'
+```
+
+Resposta esperada: `202 Accepted`.
+```
+
 ## Onde encontrar cada coisa
 
 | O quê | Onde |
 |---|---|
 | Decisão do domínio (ADR-002) | [`docs/adr/ADR-002-dominio-do-projeto.md`](docs/adr/ADR-002-dominio-do-projeto.md) |
 | Registro de uso de IA | [`docs/IA.md`](docs/IA.md) |
-| Código do publisher | [`servico-pesagem/`](servico-pesagem/) |
+| Código do publisher (pesagem) | [`servico-pesagem/`](servico-pesagem/) |
 | Código do consumer | [`servico-manejo/`](servico-manejo/) |
+| Código do publisher (vacina) | [`servico-vacinacao/`](servico-vacinacao/) |
