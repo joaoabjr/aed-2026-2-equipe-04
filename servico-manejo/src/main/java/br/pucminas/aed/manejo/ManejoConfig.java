@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import br.pucminas.aed.manejo.domain.PesagemRegistradaEvent;
+import br.pucminas.aed.manejo.domain.VacinacaoRegistradaEvent;
 
 /**
  * Mesma logica do PesagemConfig do lado publisher, espelhada aqui: o
@@ -34,6 +35,20 @@ import br.pucminas.aed.manejo.domain.PesagemRegistradaEvent;
  * ack-mode MANUAL no application.yml + ContainerProperties.AckMode.MANUAL
  * aqui: a confirmacao do offset fica sob controle do listener, que so chama
  * ack.acknowledge() DEPOIS que o commit da transacao terminou.
+ *
+ * TRES ConsumerFactory/ContainerFactory distintos, um por group.id:
+ *   - "manejo" (kafkaListenerContainerFactory): PesagemListener, efeito de
+ *     negocio + dedup, ack manual apos commit.
+ *   - "manejo-vacinacao" (vacinacaoKafkaListenerContainerFactory):
+ *     VacinacaoListener. Precisa ser um group.id PROPRIO — reaproveitar
+ *     "manejo" no mesmo topico faria os dois listeners disputarem as
+ *     particoes de UM topico dentro do MESMO grupo, tirando particoes do
+ *     PesagemListener que ja funciona (etapa 1).
+ *   - "pesagem-agregador" (pesagemAgregadoKafkaListenerContainerFactory):
+ *     PesagemAgregadaPorMinutoListener. Group.id proprio para receber o
+ *     stream inteiro do topico de pesagem, independente do que "manejo" ja
+ *     consome — dois grupos diferentes no mesmo topico nao dividem
+ *     particoes entre si, cada grupo le tudo.
  */
 @Configuration
 public class ManejoConfig {
@@ -75,6 +90,75 @@ public class ManejoConfig {
                 new ConcurrentKafkaListenerContainerFactory<String, PesagemRegistradaEvent>();
         fabrica.setConsumerFactory(consumerFactory);
         fabrica.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return fabrica;
+    }
+
+    @Bean
+    public ConsumerFactory<String, VacinacaoRegistradaEvent> vacinacaoConsumerFactory(
+            @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+            ObjectMapper objectMapper) {
+
+        Map<String, Object> propriedades = new HashMap<String, Object>();
+        propriedades.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        propriedades.put(ConsumerConfig.GROUP_ID_CONFIG, "manejo-vacinacao");
+        propriedades.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+        JsonDeserializer<VacinacaoRegistradaEvent> deserializadorJson =
+                new JsonDeserializer<VacinacaoRegistradaEvent>(VacinacaoRegistradaEvent.class, objectMapper);
+        deserializadorJson.addTrustedPackages("br.pucminas.aed.manejo.domain");
+        deserializadorJson.setUseTypeHeaders(false);
+
+        return new DefaultKafkaConsumerFactory<String, VacinacaoRegistradaEvent>(
+                propriedades,
+                new StringDeserializer(),
+                new ErrorHandlingDeserializer<VacinacaoRegistradaEvent>(deserializadorJson));
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, VacinacaoRegistradaEvent> vacinacaoKafkaListenerContainerFactory(
+            ConsumerFactory<String, VacinacaoRegistradaEvent> vacinacaoConsumerFactory) {
+
+        ConcurrentKafkaListenerContainerFactory<String, VacinacaoRegistradaEvent> fabrica =
+                new ConcurrentKafkaListenerContainerFactory<String, VacinacaoRegistradaEvent>();
+        fabrica.setConsumerFactory(vacinacaoConsumerFactory);
+        fabrica.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return fabrica;
+    }
+
+    @Bean
+    public ConsumerFactory<String, PesagemRegistradaEvent> pesagemAgregadoConsumerFactory(
+            @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+            ObjectMapper objectMapper) {
+
+        Map<String, Object> propriedades = new HashMap<String, Object>();
+        propriedades.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        propriedades.put(ConsumerConfig.GROUP_ID_CONFIG, "pesagem-agregador");
+        propriedades.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+        JsonDeserializer<PesagemRegistradaEvent> deserializadorJson =
+                new JsonDeserializer<PesagemRegistradaEvent>(PesagemRegistradaEvent.class, objectMapper);
+        deserializadorJson.addTrustedPackages("br.pucminas.aed.manejo.domain");
+        deserializadorJson.setUseTypeHeaders(false);
+
+        return new DefaultKafkaConsumerFactory<String, PesagemRegistradaEvent>(
+                propriedades,
+                new StringDeserializer(),
+                new ErrorHandlingDeserializer<PesagemRegistradaEvent>(deserializadorJson));
+    }
+
+    /**
+     * Sem AckMode.MANUAL de proposito: a agregacao e so observabilidade
+     * (nao decide nem grava nada que exija exactly-once), entao o commit
+     * automatico de offset (default do container) e suficiente — nao ha
+     * transacao para o ack esperar.
+     */
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, PesagemRegistradaEvent> pesagemAgregadoKafkaListenerContainerFactory(
+            ConsumerFactory<String, PesagemRegistradaEvent> pesagemAgregadoConsumerFactory) {
+
+        ConcurrentKafkaListenerContainerFactory<String, PesagemRegistradaEvent> fabrica =
+                new ConcurrentKafkaListenerContainerFactory<String, PesagemRegistradaEvent>();
+        fabrica.setConsumerFactory(pesagemAgregadoConsumerFactory);
         return fabrica;
     }
 }
