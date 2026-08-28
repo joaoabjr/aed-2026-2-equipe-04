@@ -22,7 +22,8 @@ public class VacinacaoListener {
         this.historicoVacinacaoService = historicoVacinacaoService;
     }
 
-    @KafkaListener(topics = "${demo.topico}", groupId = "manejo")
+    @KafkaListener(topics = "${demo.topico-vacinacao}", groupId = "manejo-vacinacao",
+            containerFactory = "vacinacaoKafkaListenerContainerFactory")
     public void aoRegistrarVacinacao(ConsumerRecord<String, VacinacaoRegistradaEvent> registro,
                                    Acknowledgment ack) {
 
