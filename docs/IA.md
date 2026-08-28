@@ -39,3 +39,29 @@ Ferramenta usada: Claude (Anthropic), em conversa de apoio à modelagem e ao esq
 `ResultadoDePublicacao`, sem sufixo, não está na lista fechada da Seção 12 (`Application, Config, Controller, Listener, Service, Repository, Event, VO`). A classe já existia com o nome `PesagemCallbackService` — mantivemos esse nome, que já descreve o papel (tratar o resultado do `send()`) com o sufixo correto.
 
 **O que aceitamos, e por quê:** a parte boa da revisão sobreviveu — enriquecer o envelope CloudEvents com `ce_subject` (`animal/{animalId}`) e `ce_datacontenttype` (`application/json`), além dos quatro obrigatórios e do `ce_time`. São atributos opcionais do CloudEvents 1.0, baratos de incluir, e deixam o cabeçalho autossuficiente para quem só quer saber qual animal e qual formato de carga sem abrir o corpo da mensagem.
+
+## Aula 03
+
+### Interação 1 — como implementar a janela de 1 minuto
+
+**Pedido:** implementar a agregação de peso médio do rebanho por janela de 1 minuto sobre o tópico `gado.animal.pesagem-registrada.v1`.
+
+**Sugestão da IA:** usar Kafka Streams (`TimeWindows.of(Duration.ofMinutes(1))` sobre uma topology, com `KTable` de agregação), que já resolve fechamento de janela e late-arrival via watermark/grace period nativamente, em vez de reimplementar isso à mão.
+
+**O que recusamos, e por quê:** recusamos introduzir uma dependência e um paradigma de processamento novo (topology do Kafka Streams) só para esta agregação. O enunciado pede "grupo de consumidores próprio", não uma stack de stream processing nova, e nenhum outro serviço do projeto usa Streams — adotar isso aqui quebraria a convenção de serviços simples e independentes na direção oposta (acoplaria o serviço a uma API mais pesada para resolver um problema pequeno). Implementamos a janela com `@KafkaListener` comum mais um acumulador em memória fechado por um `@Scheduled`, suficiente para o requisito e mais fácil de auditar linha a linha — o mesmo espírito que já tinha levado a recusar `record` na aula 02.
+
+### Interação 2 — o que fazer com um evento atrasado
+
+**Pedido:** decidir o que acontece quando um evento de pesagem chega depois que a janela de 1 minuto a que ele pertence já foi fechada e publicada no log.
+
+**Sugestão da IA:** reabrir a janela, recalcular a média com a amostra atrasada e publicar um novo log de "correção" para aquele minuto — padrão comum em sistemas de streaming com dados atrasados (upsert do resultado).
+
+**O que recusamos, e por quê:** recusamos. Reabrir e republicar geraria duas linhas de log com `pesoMedioKg` diferentes para o mesmo intervalo, e quem só acompanha o log (o resultado observável que o enunciado pede) não teria como saber qual das duas é a "final" sem comparar timestamps de publicação. Optamos por descartar o evento atrasado com um log de aviso explícito, aceitando perder uma amostra tardia em troca de cada janela aparecer exatamente uma vez no log — mais simples de verificar, e o enunciado pede para "descrever o que acontece" com o atraso, não para construir um pipeline de correção retroativa.
+
+### Interação 3 — tipo do campo `validade`
+
+**Pedido:** revisar o campo `validade` do evento de vacinação, declarado como `java.util.Date`, decidindo entre trocar para `Instant` ou manter `Date` documentando a conversão (as duas opções que o enunciado da aula 03 deixava em aberto).
+
+**Sugestão da IA:** cogitar manter `Date` e só documentar no contrato como a serialização ISO-8601 acontece nesse caso (via o `StdDateFormat` padrão do Jackson, já que o campo compila e funciona hoje).
+
+**O que recusamos, e por quê:** recusamos manter e só documentar. `Date` sem `JavaTimeModule` produz uma string ISO-8601 com formato diferente do resto do contrato (offset `+0000` em vez de `Z`), uma inconsistência que documentar não resolve — só a torna "oficial" em vez de corrigida. Como o campo ainda não tinha nenhum consumidor externo dependendo do formato antigo (a mesma razão que levou à regra de compatibilidade BACKWARD no contrato, não FULL), trocar para `Instant` agora — no publisher e na classe espelhada do consumidor — era o momento mais barato para eliminar o problema em vez de arrastá-lo.

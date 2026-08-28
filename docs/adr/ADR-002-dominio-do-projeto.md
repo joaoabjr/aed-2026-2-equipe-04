@@ -34,3 +34,11 @@ Processo de reprodução/manejo reprodutivo do rebanho — descartado por falta 
 Esta decisão nos custa escopo: ficam de fora do projeto o manejo reprodutivo, a genética do rebanho e a gestão de insumos/ração — o domínio modelado é só o ciclo comercial do animal, do cadastro ao embarque, não a fazenda inteira.
 
 Também aceitamos que o processo tem uma dependência forte de um sistema de terceiro (Frigorífico) sobre o qual não temos controle de disponibilidade nem de contrato de API documentado.
+
+## Nota — vacinação como pré-requisito de embarque (aula 03)
+
+Esta seção existe para deixar explícito que o evento `VacinacaoRegistrada`, introduzido nesta etapa, **não** reabre a decisão registrada em "Alternativas consideradas" acima.
+
+O que foi recusado ali foi um "processo de vacinação e sanidade isolado" como *domínio candidato* — um processo modelado por si só, com seu próprio ciclo de vida, que não sustentaria os quatro critérios de aceitação sozinho (só um sistema externo, nenhum ponto de decisão de negócio além de "aplicar ou não").
+
+O que entra agora é diferente: vacinação como **pré-requisito de negócio para o embarque**, dentro do MESMO processo já decidido na seção "Decisão" — o frigorífico só aceita o animal na triagem de recebimento se ele estiver com a carteira de vacinação em dia (ver `docs/contrato.md`, campo `validade`). Isso não é um domínio novo nem uma mudança de escopo; é mais um evento (`VacinacaoRegistrada`) alimentando o mesmo ponto de decisão que o ADR já descreve — "o Sistema do Frigorífico ... pode recusar o animal na triagem de recebimento" — que antes só considerava peso, e agora também considera status vacinal. A recusa por vacinação vencida é só mais uma forma de chegar ao mesmo caminho de exceção já previsto (`AnimalRejeitadoNoEmbarque`), não um caminho de exceção novo.

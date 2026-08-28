@@ -35,7 +35,9 @@ aed-2026-2-equipe-04/
 │   ├── adr/
 │   │   └── ADR-002-dominio-do-projeto.md       decisão do domínio
 │   ├── entregas/
-│   │   └── aula-02.md                          folha de rosto desta entrega
+│   │   ├── aula-02.md                          folha de rosto da aula 02
+│   │   └── aula-03.md                          folha de rosto da aula 03
+│   ├── contrato.md                             contrato do evento VacinacaoRegistrada
 │   └── IA.md                                   registro de uso de IA (## Aula 02, ## Aula 03, ...)
 ├── servico-pesagem/                           serviço publisher (pesagem)
 ├── servico-manejo/                            serviço consumidor (historico de peso)
@@ -96,6 +98,24 @@ cd servico-manejo && mvn clean package
 mvn spring-boot:run
 ```
 
+Subir o `servico-manejo` sobe, no mesmo processo, **três** `@KafkaListener` independentes, cada um com seu próprio `group.id` (não dividem partições entre si — ver [`ManejoConfig`](servico-manejo/src/main/java/br/pucminas/aed/manejo/ManejoConfig.java)):
+
+| Listener | `group.id` | Tópico | O que faz |
+|---|---|---|---|
+| `PesagemListener` | `manejo` | `gado.animal.pesagem-registrada.v1` | Histórico de peso, idempotente, grava no Postgres (etapa 1). |
+| `VacinacaoListener` | `manejo-vacinacao` | `gado.animal.vacinacao-registrada.v1` | Histórico de vacinação, idempotente, grava no Postgres. |
+| `PesagemAgregadaPorMinutoListener` | `pesagem-agregador` | `gado.animal.pesagem-registrada.v1` | Peso médio do rebanho por janela de 1 minuto — só log, não grava nada (aula 03, Parte B). |
+
+## Como observar o agregador de pesagem (aula 03, Parte B)
+
+Não precisa subir nada além do `servico-manejo` — o agregador é um `@KafkaListener` a mais, dentro do mesmo processo, com `group.id = pesagem-agregador` próprio. Publique algumas pesagens (seção acima, `POST /pesagens`) e acompanhe o log do `servico-manejo`:
+
+```
+peso medio do rebanho por minuto  janela=[2026-08-27T10:15:00Z, 2026-08-27T10:16:00Z)  amostras=3  pesoMedioKg=402.30  particao=0:offset=17
+```
+
+Cada janela fecha e é publicada cerca de 15s depois do seu fim (margem para eventos com pequeno atraso — ver [`docs/entregas/aula-03.md`](docs/entregas/aula-03.md), pergunta 3). Como o `PesagemListener` da etapa 1 continua rodando em paralelo com `group.id` diferente (`manejo`), os dois recebem o stream inteiro de pesagens — nenhum "rouba" partição do outro.
+
 ## Como testar
 
 ```bash
@@ -132,14 +152,17 @@ curl -X POST http://localhost:8085/vacinacao \
 ```
 
 Resposta esperada: `202 Accepted`.
-```
+
+O evento publicado é consumido pelo `VacinacaoListener` do `servico-manejo` (`group.id = manejo-vacinacao`), que grava o histórico de vacinação no Postgres — ver tabela de listeners na seção do `servico-manejo` acima.
 
 ## Onde encontrar cada coisa
 
 | O quê | Onde |
 |---|---|
 | Decisão do domínio (ADR-002) | [`docs/adr/ADR-002-dominio-do-projeto.md`](docs/adr/ADR-002-dominio-do-projeto.md) |
+| Contrato do evento `VacinacaoRegistrada` | [`docs/contrato.md`](docs/contrato.md) |
+| Folha de rosto da aula 03 | [`docs/entregas/aula-03.md`](docs/entregas/aula-03.md) |
 | Registro de uso de IA | [`docs/IA.md`](docs/IA.md) |
 | Código do publisher (pesagem) | [`servico-pesagem/`](servico-pesagem/) |
-| Código do consumer | [`servico-manejo/`](servico-manejo/) |
+| Código do consumer (histórico + agregador) | [`servico-manejo/`](servico-manejo/) |
 | Código do publisher (vacina) | [`servico-vacinacao/`](servico-vacinacao/) |
