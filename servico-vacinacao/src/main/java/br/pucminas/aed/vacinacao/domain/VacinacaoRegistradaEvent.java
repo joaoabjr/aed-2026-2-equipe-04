@@ -1,7 +1,6 @@
 package br.pucminas.aed.vacinacao.domain;
 
 import java.time.Instant;
-import java.util.Date;
 import java.util.Objects;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -17,7 +16,7 @@ public final class VacinacaoRegistradaEvent {
     private final double pesoKg;
     private final String metodoDeVacinacao;
     private final String vacina;
-    private final Date validade;
+    private final Instant validade;
 
     @JsonCreator
     public VacinacaoRegistradaEvent(@JsonProperty("eventoId") String eventoId,
@@ -26,7 +25,7 @@ public final class VacinacaoRegistradaEvent {
                                     @JsonProperty("pesoKg") double pesoKg,
                                     @JsonProperty("metodoDeVacinacao") String metodoDeVacinacao,
                                     @JsonProperty("vacina") String vacina,
-                                    @JsonProperty("validade") Date validade) {
+                                    @JsonProperty("validade") Instant validade) {
 
         this.eventoId = Objects.requireNonNull(eventoId, "eventoId e obrigatorio");
         this.ocorridoEm = Objects.requireNonNull(ocorridoEm, "ocorridoEm e obrigatorio");
@@ -34,7 +33,7 @@ public final class VacinacaoRegistradaEvent {
         this.pesoKg = pesoKg;
         this.metodoDeVacinacao = metodoDeVacinacao;
         this.vacina = Objects.requireNonNull(vacina, "Nome da vacina é obrigatorio");
-        this.validade = validade;
+        this.validade = Objects.requireNonNull(validade, "validade e obrigatoria");
     }
 
     public String getEventoId() {
@@ -61,7 +60,7 @@ public final class VacinacaoRegistradaEvent {
         return vacina;
     }
 
-    public Date getValidade() {
+    public Instant getValidade() {
         return validade;
     }
 

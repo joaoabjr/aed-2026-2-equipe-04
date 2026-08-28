@@ -1,17 +1,23 @@
-server:
-  port: 8080
-
 spring:
   application:
-    name: servico-pesagem
+    name: servico-manejo
+  datasource:
+    url: jdbc:postgresql://localhost:15432/aed
+    username: aed
+    password: aed
+  sql:
+    init:
+      mode: always
   kafka:
     bootstrap-servers: localhost:19092
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      # value-serializer e configurado programaticamente em PesagemConfig,
-      # para injetar o ObjectMapper com JavaTimeModule (datas em ISO-8601,
-      # nunca epoch — ver checklist item 4 do enunciado).
-
-# nome do topico == grafia do atributo CloudEvents "type": dominio.entidade.fato.v1
+    consumer:
+      group-id: manejo
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # value-deserializer e configurado programaticamente em ManejoConfig,
+      # para injetar o mesmo ObjectMapper ISO-8601 usado no producer.
+    listener:
+      ack-mode: manual
 demo:
   topico: gado.animal.pesagem-registrada.v1
+  topico-vacinacao: gado.animal.vacinacao-registrada.v1
