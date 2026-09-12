@@ -96,11 +96,12 @@ public class ManejoConfig {
     @Bean
     public ConsumerFactory<String, VacinacaoRegistradaEvent> vacinacaoConsumerFactory(
             @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+            @Value("${demo.grupo-vacinacao}") String groupId,
             ObjectMapper objectMapper) {
 
         Map<String, Object> propriedades = new HashMap<String, Object>();
         propriedades.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        propriedades.put(ConsumerConfig.GROUP_ID_CONFIG, "manejo-vacinacao");
+        propriedades.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         propriedades.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
         JsonDeserializer<VacinacaoRegistradaEvent> deserializadorJson =

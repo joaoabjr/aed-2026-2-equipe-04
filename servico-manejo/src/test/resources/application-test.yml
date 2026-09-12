@@ -22,3 +22,5 @@ spring:
 
 demo:
   topico: gado.animal.pesagem-registrada.v1
+  topico-vacinacao: gado.animal.vacinacao-registrada.v1
+  grupo-vacinacao: manejo-vacinacao-test
