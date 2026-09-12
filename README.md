@@ -1,168 +1,191 @@
 # AED 2026/2 — Equipe 04
 
+Projeto da disciplina de Arquitetura de Eventos Distribuídos (AED). O domínio é o processo de venda e embarque de gado de corte para abate: as pesagens e vacinações dos animais são publicadas como eventos e consumidas pelo serviço de manejo.
+
+Os critérios de escolha do domínio estão registrados no [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md).
+
 ## Integrantes
 
 **Líder do projeto:** Paulo Cidrão Gomes Torres (258172)
 
-|           Nome completo           | Matrícula |  Usuário GitHub  |
-|-----------------------------------|-----------|------------------|
-| Paulo Cidrão Gomes Torres (líder) |   258172  |     1668392      |
-| João Almeida Barbosa Júnior       |   256355  |     joaoabjr     |
-| João Pedro Schlindwein            |   255485  | Joao-Schlindwein |
-| João Pedro Correia Barros         |   254580  |     joaobarros1  |
-| Matheus Chaves Ferreira           |   258071  |     258071       |
-| Rafael Corrêa Zart                |   255553  |     1665760      |
-| Nome Completo 7                   |   000000  |     0000000      |
+| Nome completo | Matrícula | GitHub |
+|---|---:|---|
+| Paulo Cidrão Gomes Torres | 258172 | [1668392](https://github.com/1668392) |
+| João Almeida Barbosa Júnior | 256355 | [joaoabjr](https://github.com/joaoabjr) |
+| João Pedro Schlindwein | 255485 | [Joao-Schlindwein](https://github.com/Joao-Schlindwein) |
+| João Pedro Correia Barros | 254580 | [joaobarros1](https://github.com/joaobarros1) |
+| Matheus Chaves Ferreira | 258071 | [258071](https://github.com/258071) |
+| Rafael Corrêa Zart | 255553 | [1665760](https://github.com/1665760) |
 
-## O domínio, em uma frase
-Descrição do processo de negócio escolhido, em uma frase: <br>
-- Processo de venda e embarque de gado de corte para abate. <br>
-Detalhes, critérios de aceitação e alternativas recusadas estão em [`docs/adr/ADR-002-dominio-do-projeto.md`](docs/adr/ADR-002-dominio-do-projeto.md).
+## Arquitetura
 
-## Stack
+```text
+servico-pesagem ──PesagemRegistrada──> Kafka ──> servico-manejo ──> PostgreSQL
+                                                    └──> média de peso por minuto (log)
+servico-vacinacao ─VacinacaoRegistrada─> Kafka ──> servico-manejo ──> PostgreSQL
+```
 
-- Java 21
-- Spring Boot
-- Apache Kafka
+Os publishers enviam eventos CloudEvents 1.0 em modo binário. A chave de partição é o `animalId`, preservando a ordem dos eventos de cada animal. O `servico-manejo` persiste os históricos de pesagem e vacinação de forma idempotente, usando o `eventoId` para descartar entregas repetidas.
+
+| Serviço | Responsabilidade | Porta |
+|---|---|---:|
+| `servico-pesagem` | API que publica `PesagemRegistrada` | `8080` |
+| `servico-vacinacao` | API que publica `VacinacaoRegistrada` | `8085` |
+| `servico-manejo` | Consome eventos, mantém históricos e expõe o cadastro de manejo | `8083` |
+| Kafka | Broker de eventos | `19092` |
+| PostgreSQL | Persistência do manejo | `15432` |
+| Kafka UI | Inspeção de tópicos e mensagens | `8081` |
+
+## Tecnologias
+
+- Java 21 e Maven
+- Spring Boot e Spring for Apache Kafka
+- Apache Kafka (KRaft)
+- PostgreSQL 16
 - Docker Compose
 
-## Estrutura do repositório
- 
-```
-aed-2026-2-equipe-04/
-├── README.md                                  este arquivo
-├── docs/
-│   ├── adr/
-│   │   └── ADR-002-dominio-do-projeto.md       decisão do domínio
-│   ├── entregas/
-│   │   ├── aula-02.md                          folha de rosto da aula 02
-│   │   └── aula-03.md                          folha de rosto da aula 03
-│   ├── contrato.md                             contrato do evento VacinacaoRegistrada
-│   └── IA.md                                   registro de uso de IA (## Aula 02, ## Aula 03, ...)
-├── servico-pesagem/                           serviço publisher (pesagem)
-├── servico-manejo/                            serviço consumidor (historico de peso)
-└── servico-vacinacao/                         serviço publisher (vacina)
-```
+## Pré-requisitos
 
-## Portas
+- JDK 21
+- Maven 3.9 ou compatível
+- Docker e Docker Compose
 
-| Porta | Serviço | Uso |
-|-------|---------|-----|
-| `19092` | Kafka (docker-compose) | broker — acesso a partir do host |
-| `15432` | Postgres (docker-compose) | banco do servico-manejo |
-| `8081` | Kafka UI (docker-compose) | inspeção de tópicos/partições/mensagens (`http://localhost:8081`) |
-| `8080` | servico-pesagem | API REST do publisher (`POST /pesagens`) |
-| `8085` | servico-vacinacao | API REST do vaccination service (`POST /vacinacao`) |
-| — | servico-manejo | sem porta web de propósito: é consumidor |
+## Como executar
 
-## Como subir o projeto numa máquina limpa
-
-Pré-requisitos: Docker e Docker Compose instalados, JDK 21, Maven.
+Clone o repositório e suba a infraestrutura:
 
 ```bash
-# 1. Clonar o repositório
 git clone https://github.com/joaoabjr/aed-2026-2-equipe-04.git
 cd aed-2026-2-equipe-04
-
-# 2. Subir a infraestrutura (Kafka KRaft, Postgres e Kafka UI)
 docker compose up -d
 ```
 
-## Como rodar o servico-pesagem (publisher)
+Confira a disponibilidade dos containers com `docker compose ps`. A interface do Kafka estará em <http://localhost:8081>.
+
+Em terminais separados, inicie o consumidor e os dois publishers:
 
 ```bash
-# build
-cd servico-pesagem && mvn clean package
-
-# rodar
+# terminal 1 — consumidor e API de manejo
+cd servico-manejo
 mvn spring-boot:run
 ```
 
-Publica um evento de pesagem com um `curl`:
+```bash
+# terminal 2 — publisher de pesagens
+cd servico-pesagem
+mvn spring-boot:run
+```
+
+```bash
+# terminal 3 — publisher de vacinações
+cd servico-vacinacao
+mvn spring-boot:run
+```
+
+Para gerar os JARs sem iniciar os serviços:
+
+```bash
+mvn -f servico-pesagem/pom.xml clean package
+mvn -f servico-manejo/pom.xml clean package
+mvn -f servico-vacinacao/pom.xml clean package
+```
+
+Ao terminar, use `docker compose down` para parar a infraestrutura. Use `docker compose down -v` somente se também quiser remover os dados locais do PostgreSQL e Kafka.
+
+## Publicando eventos
+
+### Pesagem
 
 ```bash
 curl -i -X POST http://localhost:8080/pesagens \
-  -H "Content-Type: application/json" \
-  -d @servico-pesagem/pesagens-exemplo/pesagem-AN-004821.json
+  -H 'Content-Type: application/json' \
+  --data @servico-pesagem/pesagens-exemplo/pesagem-AN-004821.json
 ```
 
-Resposta esperada: `202 Accepted`.
+Resposta esperada: `202 Accepted`. O evento é publicado no tópico `gado.animal.pesagem-registrada.v1`.
 
-## Como rodar o servico-manejo (consumer)
+### Vacinação
 
 ```bash
-# build
-cd servico-manejo && mvn clean package
-
-# rodar (consome o tópico e grava no Postgres via 15432)
-mvn spring-boot:run
-```
-
-Subir o `servico-manejo` sobe, no mesmo processo, **três** `@KafkaListener` independentes, cada um com seu próprio `group.id` (não dividem partições entre si — ver [`ManejoConfig`](servico-manejo/src/main/java/br/pucminas/aed/manejo/ManejoConfig.java)):
-
-| Listener | `group.id` | Tópico | O que faz |
-|---|---|---|---|
-| `PesagemListener` | `manejo` | `gado.animal.pesagem-registrada.v1` | Histórico de peso, idempotente, grava no Postgres (etapa 1). |
-| `VacinacaoListener` | `manejo-vacinacao` | `gado.animal.vacinacao-registrada.v1` | Histórico de vacinação, idempotente, grava no Postgres. |
-| `PesagemAgregadaPorMinutoListener` | `pesagem-agregador` | `gado.animal.pesagem-registrada.v1` | Peso médio do rebanho por janela de 1 minuto — só log, não grava nada (aula 03, Parte B). |
-
-## Como observar o agregador de pesagem (aula 03, Parte B)
-
-Não precisa subir nada além do `servico-manejo` — o agregador é um `@KafkaListener` a mais, dentro do mesmo processo, com `group.id = pesagem-agregador` próprio. Publique algumas pesagens (seção acima, `POST /pesagens`) e acompanhe o log do `servico-manejo`:
-
-```
-peso medio do rebanho por minuto  janela=[2026-08-27T10:15:00Z, 2026-08-27T10:16:00Z)  amostras=3  pesoMedioKg=402.30  particao=0:offset=17
-```
-
-Cada janela fecha e é publicada cerca de 15s depois do seu fim (margem para eventos com pequeno atraso — ver [`docs/entregas/aula-03.md`](docs/entregas/aula-03.md), pergunta 3). Como o `PesagemListener` da etapa 1 continua rodando em paralelo com `group.id` diferente (`manejo`), os dois recebem o stream inteiro de pesagens — nenhum "rouba" partição do outro.
-
-## Como testar
-
-```bash
-# roda o teste de idempotência: mesmo evento entregue 3x, efeito 1x
-cd servico-manejo && mvn test
-```
-
-## Como rodar o servico-vacinacao
-
-O serviço de vacinação roda na porta 8085 e publica eventos no tópico Kafka `gado.animal.vacinacao-registrada.v1`.
-
-```bash
-# build
-cd servico-vacinacao && mvn clean package
-
-# rodar (inicie o docker compose primeiro: docker compose up -d)
-java -jar target/servico-vacinacao-1.0.jar
-```
-
-Publica um evento de vacinação com um `curl`:
-
-```bash
-curl -X POST http://localhost:8085/vacinacao \
-  -H "Content-Type: application/json" \
+curl -i -X POST http://localhost:8085/vacinacao \
+  -H 'Content-Type: application/json' \
   -d '{
-    "eventoId": "evt-001",
-    "animalId": "AN001",
-    "ocorridoEm": "2026-08-21T10:30:00Z",
-    "pesoKg": 550.0,
+    "eventoId": "evt-vac-2026-000123",
+    "ocorridoEm": "2026-08-20T09:15:00Z",
+    "animalId": "AN-004821",
+    "pesoKg": 398.5,
     "metodoDeVacinacao": "subcutanea",
     "vacina": "Febre Aftosa",
-    "validade": "2026-12-31T23:59:59Z"
+    "validade": "2027-02-20T23:59:59Z"
   }'
 ```
 
-Resposta esperada: `202 Accepted`.
+Resposta esperada: `202 Accepted`. O evento é publicado no tópico `gado.animal.vacinacao-registrada.v1`.
 
-O evento publicado é consumido pelo `VacinacaoListener` do `servico-manejo` (`group.id = manejo-vacinacao`), que grava o histórico de vacinação no Postgres — ver tabela de listeners na seção do `servico-manejo` acima.
+## Serviço de manejo
 
-## Onde encontrar cada coisa
+Além dos consumidores Kafka, o serviço expõe endpoints REST para o cadastro da estrutura do rebanho:
 
-| O quê | Onde |
+| Recurso | Endpoints disponíveis |
 |---|---|
-| Decisão do domínio (ADR-002) | [`docs/adr/ADR-002-dominio-do-projeto.md`](docs/adr/ADR-002-dominio-do-projeto.md) |
-| Contrato do evento `VacinacaoRegistrada` | [`docs/contrato.md`](docs/contrato.md) |
-| Folha de rosto da aula 03 | [`docs/entregas/aula-03.md`](docs/entregas/aula-03.md) |
-| Registro de uso de IA | [`docs/IA.md`](docs/IA.md) |
-| Código do publisher (pesagem) | [`servico-pesagem/`](servico-pesagem/) |
-| Código do consumer (histórico + agregador) | [`servico-manejo/`](servico-manejo/) |
-| Código do publisher (vacina) | [`servico-vacinacao/`](servico-vacinacao/) |
+| Fazendas | `POST /api/fazendas`, `GET /api/fazendas/{id}` |
+| Lotes | `POST /api/lotes`, `GET /api/lotes/{id}`, `GET /api/lotes/fazenda/{fazendaId}` |
+| Animais | `POST /api/animais`, `GET /api/animais/{id}`, `GET /api/animais/lote/{loteId}` |
+
+No recurso **lote**, o identificador de negócio é `numeracao`; o campo anterior `nome` não faz mais parte da carga. Exemplo de criação:
+
+```json
+{
+  "id": "LT-001",
+  "numeracao": 1,
+  "fazenda": {
+    "id": "FZ-001",
+    "nome": "Fazenda Exemplo"
+  }
+}
+```
+
+O mesmo processo registra três consumidores independentes:
+
+| Listener | Grupo Kafka | Tópico | Efeito |
+|---|---|---|---|
+| `PesagemListener` | `manejo` | `gado.animal.pesagem-registrada.v1` | Grava o histórico de peso. |
+| `VacinacaoListener` | `manejo-vacinacao` | `gado.animal.vacinacao-registrada.v1` | Grava o histórico de vacinação. |
+| `PesagemAgregadaPorMinutoListener` | `pesagem-agregador` | `gado.animal.pesagem-registrada.v1` | Registra no log o peso médio do rebanho por janela de um minuto. |
+
+Os grupos distintos recebem o fluxo completo do tópico; portanto, o agregador não compete com o consumidor que persiste o histórico. A janela é calculada a partir de `ocorridoEm` e fechada cerca de 15 segundos após seu término para aceitar pequenos atrasos.
+
+## Testes
+
+Execute os testes do serviço de manejo com:
+
+```bash
+mvn -f servico-manejo/pom.xml test
+```
+
+O conjunto inclui o teste de idempotência do histórico de pesagens: a entrega repetida do mesmo evento deve produzir apenas um efeito persistido.
+
+## Estrutura do repositório
+
+```text
+.
+├── docker-compose.yml
+├── docs/
+│   ├── adr/                         # decisões arquiteturais
+│   ├── entregas/                    # documentação das entregas
+│   ├── contrato.md                  # contrato de VacinacaoRegistrada
+│   └── IA.md                        # registro de uso de IA
+├── servico-pesagem/                 # publisher de pesagens
+├── servico-vacinacao/               # publisher de vacinações
+└── servico-manejo/                  # consumidores, persistência e API de manejo
+```
+
+## Documentação complementar
+
+| Assunto | Documento |
+|---|---|
+| Decisão do domínio | [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md) |
+| Contrato de `VacinacaoRegistrada` | [docs/contrato.md](docs/contrato.md) |
+| Entrega da aula 02 | [docs/entregas/aula-02.md](docs/entregas/aula-02.md) |
+| Entrega da aula 03 | [docs/entregas/aula-03.md](docs/entregas/aula-03.md) |
+| Registro de uso de IA | [docs/IA.md](docs/IA.md) |

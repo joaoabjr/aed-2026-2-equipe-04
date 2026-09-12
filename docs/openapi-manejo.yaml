@@ -1,0 +1,262 @@
+openapi: 3.0.3
+info:
+  title: API de Manejo
+  version: 1.0.0
+  description: Cadastro da estrutura Fazenda → Lote → Animal no serviço de manejo.
+servers:
+  - url: http://localhost:8083
+paths:
+  /api/fazendas:
+    post:
+      tags: [Fazendas]
+      summary: Cadastra uma fazenda
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FazendaInput'
+      responses:
+        '201':
+          description: Fazenda cadastrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fazenda'
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+  /api/fazendas/{id}:
+    get:
+      tags: [Fazendas]
+      summary: Busca uma fazenda por ID
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Fazenda encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fazenda'
+        '404':
+          $ref: '#/components/responses/NaoEncontrado'
+  /api/lotes:
+    post:
+      tags: [Lotes]
+      summary: Cadastra um lote vinculado a uma fazenda existente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoteInput'
+      responses:
+        '201':
+          description: Lote cadastrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lote'
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+  /api/lotes/{id}:
+    get:
+      tags: [Lotes]
+      summary: Busca um lote por ID
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Lote encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lote'
+        '404':
+          $ref: '#/components/responses/NaoEncontrado'
+  /api/lotes/fazenda/{fazendaId}:
+    get:
+      tags: [Lotes]
+      summary: Lista os lotes ativos de uma fazenda
+      parameters:
+        - name: fazendaId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lotes da fazenda; retorna uma lista vazia quando não há lotes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Lote'
+  /api/animais:
+    post:
+      tags: [Animais]
+      summary: Cadastra um animal vinculado a um lote existente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnimalInput'
+      responses:
+        '201':
+          description: Animal cadastrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Animal'
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+  /api/animais/{id}:
+    get:
+      tags: [Animais]
+      summary: Busca um animal por ID
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Animal encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Animal'
+        '404':
+          $ref: '#/components/responses/NaoEncontrado'
+  /api/animais/lote/{loteId}:
+    get:
+      tags: [Animais]
+      summary: Lista os animais ativos de um lote
+      parameters:
+        - name: loteId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Animais do lote; retorna uma lista vazia quando não há animais.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Animal'
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    RequisicaoInvalida:
+      description: Corpo ausente, inválido ou com campos obrigatórios inválidos.
+    NaoEncontrado:
+      description: Recurso não encontrado ou removido logicamente.
+  schemas:
+    FazendaInput:
+      type: object
+      required: [id, nome]
+      properties:
+        id:
+          type: string
+          maxLength: 64
+          example: FZ-001
+        nome:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: Fazenda Exemplo
+    Fazenda:
+      allOf:
+        - $ref: '#/components/schemas/FazendaInput'
+        - $ref: '#/components/schemas/Auditoria'
+    FazendaReferencia:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          maxLength: 64
+          example: FZ-001
+    LoteInput:
+      type: object
+      required: [id, numeracao, fazenda]
+      properties:
+        id:
+          type: string
+          maxLength: 64
+          example: LT-001
+        numeracao:
+          type: integer
+          minimum: 1
+          example: 1
+        fazenda:
+          $ref: '#/components/schemas/FazendaReferencia'
+    Lote:
+      allOf:
+        - $ref: '#/components/schemas/LoteInput'
+        - $ref: '#/components/schemas/Auditoria'
+    LoteReferencia:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          maxLength: 64
+          example: LT-001
+    AnimalInput:
+      type: object
+      required: [id, nomeDoAnimal, raca, idade, dataDeNascimento, lote]
+      properties:
+        id:
+          type: string
+          maxLength: 64
+          example: AN-001
+        nomeDoAnimal:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: Mimosa
+        raca:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: Nelore
+        idade:
+          type: integer
+          minimum: 0
+          example: 3
+        dataDeNascimento:
+          type: string
+          format: date-time
+          example: '2023-05-20T00:00:00Z'
+        lote:
+          $ref: '#/components/schemas/LoteReferencia'
+    Animal:
+      allOf:
+        - $ref: '#/components/schemas/AnimalInput'
+        - $ref: '#/components/schemas/Auditoria'
+    Auditoria:
+      type: object
+      required: [createdAt, updatedAt]
+      properties:
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
