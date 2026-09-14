@@ -64,5 +64,25 @@ CREATE TABLE IF NOT EXISTS historico_vacinacao (
 CREATE INDEX IF NOT EXISTS idx_historico_vacinacao_animal
     ON historico_vacinacao (animal_id, registrado_em);
 
+-- Tabela de vendas — o ciclo comercial do animal (ADR-002).
+-- Uma venda referencia UM animal OU UM lote (nunca os dois, nunca nenhum).
+-- O peso_minimo_kg e a meta de peso acordada em contrato com o frigorifico.
+CREATE TABLE IF NOT EXISTS venda (
+    id VARCHAR(64) PRIMARY KEY,
+    animal_id VARCHAR(64) REFERENCES animal(id),
+    lote_id VARCHAR(64) REFERENCES lote(id),
+    frigorifico VARCHAR(255) NOT NULL,
+    peso_minimo_kg DOUBLE PRECISION NOT NULL CHECK (peso_minimo_kg > 0),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    -- exatamente um alvo: animal XOR lote
+    CHECK ( (animal_id IS NOT NULL AND lote_id IS NULL)
+         OR (animal_id IS NULL AND lote_id IS NOT NULL) )
+);
+
+CREATE INDEX IF NOT EXISTS idx_venda_animal ON venda(animal_id);
+CREATE INDEX IF NOT EXISTS idx_venda_lote ON venda(lote_id);
+
 CREATE INDEX IF NOT EXISTS idx_lote_fazenda ON lote(fazenda_id);
 CREATE INDEX IF NOT EXISTS idx_animal_lote ON animal(lote_id);
