@@ -1,0 +1,11 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: servico-expedicao
+  kafka:
+    bootstrap-servers: localhost:19092
+
+demo:
+  topico: gado.animal.embarcado-para-abate.v1
