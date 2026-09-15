@@ -26,3 +26,4 @@ demo:
   grupo-vacinacao: manejo-vacinacao-test
   topico-lote-formado: gado.lote.formado.v1
   topico-lote-movido-de-pasto: gado.lote.movido-de-pasto.v1
+  grupo-lote-localizacao: lote-localizacao-test

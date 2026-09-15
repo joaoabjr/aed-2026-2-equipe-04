@@ -86,3 +86,31 @@ CREATE INDEX IF NOT EXISTS idx_venda_lote ON venda(lote_id);
 
 CREATE INDEX IF NOT EXISTS idx_lote_fazenda ON lote(fazenda_id);
 CREATE INDEX IF NOT EXISTS idx_animal_lote ON animal(lote_id);
+
+-- Event store do agregado Lote (localizacao de pasto) — ADR-005.
+-- Append-only: nenhuma linha e' alterada nem apagada depois de gravada.
+-- (lote_id, versao) e' a chave: a propria restricao de unicidade e' o
+-- mecanismo de deteccao de concorrencia — duas escritas tentando gravar a
+-- mesma versao do mesmo lote colidem, so uma vence.
+CREATE TABLE IF NOT EXISTS lote_evento_store (
+    lote_id VARCHAR(64) NOT NULL,
+    versao INTEGER NOT NULL,
+    evento_id VARCHAR(64) NOT NULL,
+    tipo_evento VARCHAR(64) NOT NULL,
+    ocorrido_em TIMESTAMP NOT NULL,
+    payload VARCHAR(4000) NOT NULL,
+    PRIMARY KEY (lote_id, versao),
+    UNIQUE (evento_id)
+);
+
+-- Projecao descartavel: onde cada lote esta agora, segundo o event store.
+-- Nunca e' escrita por UPDATE de negocio direto — so pelo fold dos eventos
+-- (LoteLocalizacaoService), seja incrementalmente ou por replay completo.
+-- A fonte da verdade e' sempre o lote_evento_store; esta tabela pode ser
+-- apagada e reconstruida inteira sem perder informacao.
+CREATE TABLE IF NOT EXISTS lote_localizacao_atual (
+    lote_id VARCHAR(64) PRIMARY KEY,
+    pasto_atual_id VARCHAR(64),
+    versao_da_projecao INTEGER NOT NULL,
+    atualizado_em TIMESTAMP NOT NULL
+);
