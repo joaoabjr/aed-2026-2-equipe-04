@@ -219,4 +219,73 @@ public class ManejoConfig {
         fabrica.setConsumerFactory(pesagemAgregadoConsumerFactory);
         return fabrica;
     }
+
+    /**
+     * Consumidores do event store do agregado Lote (localizacao) — ADR-005.
+     * Group.id proprio ("lote-localizacao"), ack MANUAL: o event store e a
+     * projecao sao a fonte de verdade (nao so observabilidade), entao o
+     * offset so confirma depois que a transacao do LoteLocalizacaoService
+     * terminou — mesmo desenho do PesagemListener/VacinacaoListener.
+     */
+    @Bean
+    public ConsumerFactory<String, LoteFormadoEvent> loteFormadoConsumerFactory(
+            @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+            @Value("${demo.grupo-lote-localizacao}") String groupId,
+            ObjectMapper objectMapper) {
+
+        Map<String, Object> propriedades = new HashMap<>();
+        propriedades.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        propriedades.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        propriedades.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+        JsonDeserializer<LoteFormadoEvent> deserializadorJson =
+                new JsonDeserializer<>(LoteFormadoEvent.class, objectMapper);
+        deserializadorJson.addTrustedPackages("br.pucminas.aed.manejo.domain");
+        deserializadorJson.setUseTypeHeaders(false);
+
+        return new DefaultKafkaConsumerFactory<>(propriedades, new StringDeserializer(),
+                new ErrorHandlingDeserializer<>(deserializadorJson));
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, LoteFormadoEvent> loteFormadoKafkaListenerContainerFactory(
+            ConsumerFactory<String, LoteFormadoEvent> loteFormadoConsumerFactory) {
+
+        ConcurrentKafkaListenerContainerFactory<String, LoteFormadoEvent> fabrica =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        fabrica.setConsumerFactory(loteFormadoConsumerFactory);
+        fabrica.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return fabrica;
+    }
+
+    @Bean
+    public ConsumerFactory<String, LoteMovidoDePastoEvent> loteMovidoDePastoConsumerFactory(
+            @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+            @Value("${demo.grupo-lote-localizacao}") String groupId,
+            ObjectMapper objectMapper) {
+
+        Map<String, Object> propriedades = new HashMap<>();
+        propriedades.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        propriedades.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        propriedades.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+        JsonDeserializer<LoteMovidoDePastoEvent> deserializadorJson =
+                new JsonDeserializer<>(LoteMovidoDePastoEvent.class, objectMapper);
+        deserializadorJson.addTrustedPackages("br.pucminas.aed.manejo.domain");
+        deserializadorJson.setUseTypeHeaders(false);
+
+        return new DefaultKafkaConsumerFactory<>(propriedades, new StringDeserializer(),
+                new ErrorHandlingDeserializer<>(deserializadorJson));
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, LoteMovidoDePastoEvent> loteMovidoDePastoKafkaListenerContainerFactory(
+            ConsumerFactory<String, LoteMovidoDePastoEvent> loteMovidoDePastoConsumerFactory) {
+
+        ConcurrentKafkaListenerContainerFactory<String, LoteMovidoDePastoEvent> fabrica =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        fabrica.setConsumerFactory(loteMovidoDePastoConsumerFactory);
+        fabrica.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return fabrica;
+    }
 }
