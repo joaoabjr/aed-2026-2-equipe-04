@@ -65,3 +65,13 @@ Ferramenta usada: Claude (Anthropic), em conversa de apoio à modelagem e ao esq
 **Sugestão da IA:** cogitar manter `Date` e só documentar no contrato como a serialização ISO-8601 acontece nesse caso (via o `StdDateFormat` padrão do Jackson, já que o campo compila e funciona hoje).
 
 **O que recusamos, e por quê:** recusamos manter e só documentar. `Date` sem `JavaTimeModule` produz uma string ISO-8601 com formato diferente do resto do contrato (offset `+0000` em vez de `Z`), uma inconsistência que documentar não resolve — só a torna "oficial" em vez de corrigida. Como o campo ainda não tinha nenhum consumidor externo dependendo do formato antigo (a mesma razão que levou à regra de compatibilidade BACKWARD no contrato, não FULL), trocar para `Instant` agora — no publisher e na classe espelhada do consumidor — era o momento mais barato para eliminar o problema em vez de arrastá-lo.
+
+## Aula 04
+
+### Interação 1 — o que "código" significa nesta etapa
+
+**Pedido:** decidir o que a parte de código da aula 04 deveria ser, depois de escrito o ADR-003 (chave de partição): reaproveitar o agregador de peso médio por minuto já existente (aula 03, chave `animalId`), ou construir um agregador novo agrupando por `loteId` — a chave que o ADR-003 também discute — para demonstrar na prática a distinção entre os dois níveis.
+
+**Sugestão da IA:** apresentou as duas opções sem empurrar nenhuma — destacou que um agregador novo por `loteId` "ilustraria melhor", na prática, a distinção que o ADR-003 só descreve em texto.
+
+**O que recusamos, e por quê:** recusamos construir o agregador novo. Nenhuma pergunta de negócio hoje pede "peso médio por lote" — o próprio ADR-003 já registra essa lacuna na seção de consequências aceitas, como algo que fica em aberto, não como pendência desta entrega. Escrever um agregador novo só para ilustrar melhor uma decisão que o texto do ADR já sustenta seria trabalho extra sem necessidade prática, na contramão do que o curso pede repetidamente (não modelar em cima de pergunta hipotética). Reaproveitamos o agregador da aula 03 e escrevemos, no `docs/entregas/aula-04.md`, por que a chave `animalId` não atrapalha essa agregação específica — que é exatamente o vínculo entre ADR e código que a etapa pede.
