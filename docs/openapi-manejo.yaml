@@ -2,14 +2,14 @@ openapi: 3.0.3
 info:
   title: API de Manejo
   version: 1.0.0
-  description: Cadastro da estrutura Fazenda → Lote → Animal no serviço de manejo.
+  description: Cadastro da estrutura Fazenda → Lote → Animal e publicação da formação de lotes.
 servers:
   - url: http://localhost:8083
 paths:
   /api/fazendas:
     post:
       tags: [Fazendas]
-      summary: Cadastra uma fazenda
+      summary: Cadastra uma fazenda (idempotente por id)
       requestBody:
         required: true
         content:
@@ -17,6 +17,12 @@ paths:
             schema:
               $ref: '#/components/schemas/FazendaInput'
       responses:
+        '200':
+          description: Fazenda já cadastrada — reenvio idempotente do mesmo id; retorna o registro existente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fazenda'
         '201':
           description: Fazenda cadastrada
           content:
@@ -43,7 +49,7 @@ paths:
   /api/lotes:
     post:
       tags: [Lotes]
-      summary: Cadastra um lote vinculado a uma fazenda existente
+      summary: Cadastra um lote vinculado a uma fazenda existente (idempotente por id)
       requestBody:
         required: true
         content:
@@ -51,6 +57,12 @@ paths:
             schema:
               $ref: '#/components/schemas/LoteInput'
       responses:
+        '200':
+          description: Lote já cadastrado — reenvio idempotente do mesmo id; retorna o registro existente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lote'
         '201':
           description: Lote cadastrado
           content:
@@ -74,6 +86,28 @@ paths:
                 $ref: '#/components/schemas/Lote'
         '404':
           $ref: '#/components/responses/NaoEncontrado'
+  /api/lotes/formacoes:
+    post:
+      tags: [Lotes]
+      summary: Registra e publica a formação de um lote
+      description: Valida que os animais pertencem ao lote e publica `LoteFormado` no tópico `gado.lote.formado.v1`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoteFormado'
+            example:
+              eventoId: evt-lote-2026-000001
+              ocorridoEm: '2026-09-14T14:30:00Z'
+              loteId: LT-001
+              animalIds: [AN-001, AN-002]
+              criterioDeFormacao: peso e idade semelhantes
+      responses:
+        '202':
+          description: Evento aceito para publicação assíncrona.
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
   /api/lotes/fazenda/{fazendaId}:
     get:
       tags: [Lotes]
@@ -96,7 +130,7 @@ paths:
   /api/animais:
     post:
       tags: [Animais]
-      summary: Cadastra um animal vinculado a um lote existente
+      summary: Cadastra um animal vinculado a um lote existente (idempotente por id)
       requestBody:
         required: true
         content:
@@ -104,6 +138,12 @@ paths:
             schema:
               $ref: '#/components/schemas/AnimalInput'
       responses:
+        '200':
+          description: Animal já cadastrado — reenvio idempotente do mesmo id; retorna o registro existente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Animal'
         '201':
           description: Animal cadastrado
           content:
@@ -146,6 +186,28 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Animal'
+  /api/pastos/movimentacoes:
+    post:
+      tags: [Manejo de Pasto]
+      summary: Registra e publica a movimentação de um lote entre pastos
+      description: Valida o lote, exige origem e destino distintos e publica `LoteMovidoDePasto` no tópico `gado.lote.movido-de-pasto.v1`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoteMovidoDePasto'
+            example:
+              eventoId: evt-pasto-2026-000001
+              ocorridoEm: '2026-09-14T16:00:00Z'
+              loteId: LT-001
+              pastoOrigemId: PST-01
+              pastoDestinoId: PST-02
+      responses:
+        '202':
+          description: Evento aceito para publicação assíncrona.
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
 components:
   parameters:
     Id:
@@ -211,6 +273,47 @@ components:
           type: string
           maxLength: 64
           example: LT-001
+    LoteFormado:
+      type: object
+      required: [eventoId, ocorridoEm, loteId, animalIds, criterioDeFormacao]
+      properties:
+        eventoId:
+          type: string
+          example: evt-lote-2026-000001
+        ocorridoEm:
+          type: string
+          format: date-time
+        loteId:
+          type: string
+          example: LT-001
+        animalIds:
+          type: array
+          description: A lista pode estar vazia logo após a formação.
+          items:
+            type: string
+          example: [AN-001, AN-002]
+        criterioDeFormacao:
+          type: string
+          example: peso e idade semelhantes
+    LoteMovidoDePasto:
+      type: object
+      required: [eventoId, ocorridoEm, loteId, pastoOrigemId, pastoDestinoId]
+      properties:
+        eventoId:
+          type: string
+          example: evt-pasto-2026-000001
+        ocorridoEm:
+          type: string
+          format: date-time
+        loteId:
+          type: string
+          example: LT-001
+        pastoOrigemId:
+          type: string
+          example: PST-01
+        pastoDestinoId:
+          type: string
+          example: PST-02
     AnimalInput:
       type: object
       required: [id, nomeDoAnimal, raca, idade, dataDeNascimento, lote]

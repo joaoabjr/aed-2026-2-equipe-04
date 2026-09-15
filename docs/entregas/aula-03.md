@@ -4,6 +4,7 @@
 
 - **Parte A:** contrato do evento `VacinacaoRegistrada` documentado em [`docs/contrato.md`](../contrato.md) — campos, obrigatoriedade, formato de data, chave de partição e regra de compatibilidade (BACKWARD).
 - **Parte B:** segundo agregador do tópico `gado.animal.pesagem-registrada.v1` — `PesagemAgregadaPorMinutoListener`, em `servico-manejo/controller`, com `group.id = pesagem-agregador` próprio, rodando ao lado do `PesagemListener` da etapa 1 sem competir por partições.
+- **Contrato de `PesagemRegistrada`:** o evento consumido pela Parte B (`gado.animal.pesagem-registrada.v1`) passou a ter contrato escrito em [`docs/contrato-pesagem.md`](../contrato-pesagem.md), no mesmo formato do contrato de `VacinacaoRegistrada` — os dois eventos que o `servico-manejo` consome agora estão documentados no fio.
 - **Correção de bug:** o `VacinacaoListener` (adicionado entre a aula 02 e esta etapa) estava com `group.id` igual ao do `PesagemListener` ("manejo") e resolvendo o mesmo `${demo.topico}` de pesagem — os dois listeners disputariam as 3 partições do tópico de pesagem dentro do mesmo grupo, roubando partições do consumidor que já funcionava. Corrigido com `group.id = manejo-vacinacao` e tópico próprio (`${demo.topico-vacinacao}`), cada um com seu `ConsumerFactory`/`ConcurrentKafkaListenerContainerFactory`.
 - **Nota no ADR-002:** esclarecendo que vacinação como pré-requisito de embarque é um evento do mesmo domínio (venda/embarque), não o "processo de vacinação isolado" já recusado nas alternativas.
 - **Registro de uso de IA:** [`docs/IA.md`](../IA.md), seção `## Aula 03`, com uma recusa registrada.
@@ -47,6 +48,7 @@ Isso é aceitável porque a garantia que este agregador se propõe a dar não é
 | O quê | Onde |
 |---|---|
 | Contrato do evento `VacinacaoRegistrada` | [`docs/contrato.md`](../contrato.md) |
+| Contrato do evento `PesagemRegistrada` (consumido pela Parte B) | [`docs/contrato-pesagem.md`](../contrato-pesagem.md) |
 | Agregador (Parte B) | [`servico-manejo/.../controller/PesagemAgregadaPorMinutoListener.java`](../../servico-manejo/src/main/java/br/pucminas/aed/manejo/controller/PesagemAgregadaPorMinutoListener.java) |
 | Consumer factories / group.id por listener | [`servico-manejo/.../ManejoConfig.java`](../../servico-manejo/src/main/java/br/pucminas/aed/manejo/ManejoConfig.java) |
 | Correção do `VacinacaoListener` | [`servico-manejo/.../controller/VacinacaoListener.java`](../../servico-manejo/src/main/java/br/pucminas/aed/manejo/controller/VacinacaoListener.java) |
@@ -75,11 +77,12 @@ O resultado do agregador aparece no log do `servico-manejo` como `peso medio do 
 
 | Integrante | Contribuição nesta etapa |
 |---|---|
-| João Almeida Barbosa Júnior | Contrato do evento (`docs/contrato.md`), agregador `PesagemAgregadaPorMinutoListener`, correção do `group.id`/tópico do `VacinacaoListener`, nota no ADR-002 |
+| João Almeida Barbosa Júnior | Contrato do evento (`docs/contrato.md`), contrato de `PesagemRegistrada` (`docs/contrato-pesagem.md`), agregador `PesagemAgregadaPorMinutoListener`, correção do `group.id`/tópico do `VacinacaoListener`, nota no ADR-002 |
 
 ## Por onde começar a leitura
 
 1. [`docs/contrato.md`](../contrato.md) — o contrato do evento de vacinação.
-2. [`servico-manejo/.../controller/PesagemAgregadaPorMinutoListener.java`](../../servico-manejo/src/main/java/br/pucminas/aed/manejo/controller/PesagemAgregadaPorMinutoListener.java) — a decisão de relógio (event time) e o tratamento de atraso, comentados na classe.
-3. [`servico-manejo/.../ManejoConfig.java`](../../servico-manejo/src/main/java/br/pucminas/aed/manejo/ManejoConfig.java) — os três pares `ConsumerFactory`/`ContainerFactory`, um por `group.id`.
-4. [`docs/adr/ADR-002-dominio-do-projeto.md`](../adr/ADR-002-dominio-do-projeto.md) — a nota ao final, distinguindo "vacinação como pré-requisito de embarque" do "processo de vacinação isolado" já recusado.
+2. [`docs/contrato-pesagem.md`](../contrato-pesagem.md) — o contrato do evento de pesagem consumido pela Parte B.
+3. [`servico-manejo/.../controller/PesagemAgregadaPorMinutoListener.java`](../../servico-manejo/src/main/java/br/pucminas/aed/manejo/controller/PesagemAgregadaPorMinutoListener.java) — a decisão de relógio (event time) e o tratamento de atraso, comentados na classe.
+4. [`servico-manejo/.../ManejoConfig.java`](../../servico-manejo/src/main/java/br/pucminas/aed/manejo/ManejoConfig.java) — os três pares `ConsumerFactory`/`ContainerFactory`, um por `group.id`.
+5. [`docs/adr/ADR-002-dominio-do-projeto.md`](../adr/ADR-002-dominio-do-projeto.md) — a nota ao final, distinguindo "vacinação como pré-requisito de embarque" do "processo de vacinação isolado" já recusado.

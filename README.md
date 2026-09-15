@@ -20,18 +20,21 @@ Os critérios de escolha do domínio estão registrados no [ADR-002](docs/adr/AD
 ## Arquitetura
 
 ```text
-servico-pesagem ──PesagemRegistrada──> Kafka ──> servico-manejo ──> PostgreSQL
-                                                    └──> média de peso por minuto (log)
-servico-vacinacao ─VacinacaoRegistrada─> Kafka ──> servico-manejo ──> PostgreSQL
+servico-pesagem   ─PesagemRegistrada──> Kafka ──> servico-manejo               ──> PostgreSQL
+                                                          └──> média de peso por minuto (log)
+servico-vacinacao ─VacinacaoRegistrada─> Kafka ──> servico-manejo               ──> PostgreSQL
+servico-expedicao ─AnimalEmbarcadoParaAbate─> Kafka ──> Financeiro / Rastreabilidade
+servico-manejo    ─LoteFormado / LoteMovidoDePasto─> Kafka ──> Nutrição / Sanidade
 ```
 
-Os publishers enviam eventos CloudEvents 1.0 em modo binário. A chave de partição é o `animalId`, preservando a ordem dos eventos de cada animal. O `servico-manejo` persiste os históricos de pesagem e vacinação de forma idempotente, usando o `eventoId` para descartar entregas repetidas.
+Os publishers enviam eventos CloudEvents 1.0 em modo binário. A chave de partição é o `animalId`, preservando a ordem dos eventos de cada animal. O `servico-manejo` persiste os históricos de pesagem e vacinação de forma idempotente, usando o `eventoId` para descartar entregas repetidas. Os cadastros REST (`fazenda`, `lote`, `animal`, `venda`) também são idempotentes por `id`: reenviar o mesmo `id` retorna o registro existente (`200`) em vez de duplicar ou falhar — a primeira criação responde `201`.
 
 | Serviço | Responsabilidade | Porta |
 |---|---|---:|
 | `servico-pesagem` | API que publica `PesagemRegistrada` | `8080` |
 | `servico-vacinacao` | API que publica `VacinacaoRegistrada` | `8085` |
-| `servico-manejo` | Consome eventos, mantém históricos e expõe o cadastro de manejo | `8083` |
+| `servico-expedicao` | API que publica `AnimalEmbarcadoParaAbate` | `8086` |
+| `servico-manejo` | Consome eventos, mantém históricos, expõe o cadastro e publica eventos de lote/pasto | `8083` |
 | Kafka | Broker de eventos | `19092` |
 | PostgreSQL | Persistência do manejo | `15432` |
 | Kafka UI | Inspeção de tópicos e mensagens | `8081` |
@@ -62,7 +65,7 @@ docker compose up -d
 
 Confira a disponibilidade dos containers com `docker compose ps`. A interface do Kafka estará em <http://localhost:8081>.
 
-Em terminais separados, inicie o consumidor e os dois publishers:
+Em terminais separados, inicie o consumidor e os três publishers:
 
 ```bash
 # terminal 1 — consumidor e API de manejo
@@ -82,17 +85,26 @@ cd servico-vacinacao
 mvn spring-boot:run
 ```
 
+```bash
+# terminal 4 — publisher de embarques
+cd servico-expedicao
+mvn spring-boot:run
+```
+
 Para gerar os JARs sem iniciar os serviços:
 
 ```bash
 mvn -f servico-pesagem/pom.xml clean package
 mvn -f servico-manejo/pom.xml clean package
 mvn -f servico-vacinacao/pom.xml clean package
+mvn -f servico-expedicao/pom.xml clean package
 ```
 
 Ao terminar, use `docker compose down` para parar a infraestrutura. Use `docker compose down -v` somente se também quiser remover os dados locais do PostgreSQL e Kafka.
 
 ## Publicando eventos
+
+O contrato OpenAPI dos três endpoints de publicação está em [`docs/openapi-eventos.yaml`](docs/openapi-eventos.yaml). A API do serviço de manejo está em [`docs/openapi-manejo.yaml`](docs/openapi-manejo.yaml).
 
 ### Pesagem
 
@@ -122,15 +134,36 @@ curl -i -X POST http://localhost:8085/vacinacao \
 
 Resposta esperada: `202 Accepted`. O evento é publicado no tópico `gado.animal.vacinacao-registrada.v1`.
 
+### Embarque para abate
+
+```bash
+curl -i -X POST http://localhost:8086/embarques \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "eventoId": "evt-emb-2026-000001",
+    "ocorridoEm": "2026-09-14T10:30:00Z",
+    "animalId": "AN-004821",
+    "frigorificoDestino": "Frigorífico Exemplo S.A.",
+    "pesoDeEmbarqueKg": 480.5
+  }'
+```
+
+Resposta esperada: `202 Accepted`. O evento é publicado no tópico `gado.animal.embarcado-para-abate.v1`.
+
 ## Serviço de manejo
 
-Além dos consumidores Kafka, o serviço expõe endpoints REST para o cadastro da estrutura do rebanho:
+Além dos consumidores Kafka, o serviço expõe endpoints REST para o cadastro da estrutura do rebanho (spec em [`docs/openapi-manejo.yaml`](docs/openapi-manejo.yaml)):
 
 | Recurso | Endpoints disponíveis |
 |---|---|
 | Fazendas | `POST /api/fazendas`, `GET /api/fazendas/{id}` |
 | Lotes | `POST /api/lotes`, `GET /api/lotes/{id}`, `GET /api/lotes/fazenda/{fazendaId}` |
 | Animais | `POST /api/animais`, `GET /api/animais/{id}`, `GET /api/animais/lote/{loteId}` |
+| Vendas | `POST /api/vendas`, `GET /api/vendas/{id}`, `GET /api/vendas/animal/{animalId}`, `GET /api/vendas/lote/{loteId}` |
+| Formação de lote | `POST /api/lotes/formacoes` publica `LoteFormado` |
+| Manejo de pasto | `POST /api/pastos/movimentacoes` publica `LoteMovidoDePasto` |
+
+Os cadastros (`fazenda`, `lote`, `animal`, `venda`) são idempotentes por `id`: a primeira criação responde `201 Created`; reenviar o mesmo `id` não duplica nem falha — retorna o registro já existente com `200 OK` (regra transversal do [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md)).
 
 No recurso **lote**, o identificador de negócio é `numeracao`; o campo anterior `nome` não faz mais parte da carga. Exemplo de criação:
 
@@ -155,6 +188,14 @@ O mesmo processo registra três consumidores independentes:
 
 Os grupos distintos recebem o fluxo completo do tópico; portanto, o agregador não compete com o consumidor que persiste o histórico. A janela é calculada a partir de `ocorridoEm` e fechada cerca de 15 segundos após seu término para aceitar pequenos atrasos.
 
+O contrato de `PesagemRegistrada` (`gado.animal.pesagem-registrada.v1`) está em [`docs/contrato-pesagem.md`](docs/contrato-pesagem.md), e o de `VacinacaoRegistrada` em [`docs/contrato.md`](docs/contrato.md): os dois eventos que o serviço de manejo consome têm contrato escrito.
+
+O serviço de manejo também publica `LoteFormado` em `gado.lote.formado.v1`. O contrato está em [`docs/contrato-lote-formado.md`](docs/contrato-lote-formado.md); Nutrição e Manejo de Pasto podem consumi-lo sem acoplamento ao produtor.
+
+O agregado Manejo de Pasto publica `LoteMovidoDePasto` em `gado.lote.movido-de-pasto.v1`. O contrato está em [`docs/contrato-lote-movido-de-pasto.md`](docs/contrato-lote-movido-de-pasto.md); Nutrição e Sanidade podem consumi-lo independentemente.
+
+O caminho de exceção do domínio é a recusa do animal no frigorífico (`AnimalRejeitadoNoEmbarque`): registrada de forma definitiva pela expedição, ela dispara a compensação no manejo — o animal retorna ao lote de origem e a dieta é reavaliada, como efeito permanente (ver [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md)).
+
 ## Testes
 
 Execute os testes do serviço de manejo com:
@@ -163,7 +204,7 @@ Execute os testes do serviço de manejo com:
 mvn -f servico-manejo/pom.xml test
 ```
 
-O conjunto inclui o teste de idempotência do histórico de pesagens: a entrega repetida do mesmo evento deve produzir apenas um efeito persistido.
+O conjunto inclui o teste de idempotência do histórico de pesagens — a entrega repetida do mesmo evento deve produzir apenas um efeito persistido — e os testes de reenvio idempotente dos cadastros de fazenda, lote, animal e venda.
 
 ## Estrutura do repositório
 
@@ -174,9 +215,16 @@ O conjunto inclui o teste de idempotência do histórico de pesagens: a entrega 
 │   ├── adr/                         # decisões arquiteturais
 │   ├── entregas/                    # documentação das entregas
 │   ├── contrato.md                  # contrato de VacinacaoRegistrada
+│   ├── contrato-pesagem.md          # contrato de PesagemRegistrada
+│   ├── contrato-embarque.md         # contrato de AnimalEmbarcadoParaAbate
+│   ├── contrato-lote-formado.md     # contrato de LoteFormado
+│   ├── contrato-lote-movido-de-pasto.md  # contrato de LoteMovidoDePasto
+│   ├── openapi-eventos.yaml         # OpenAPI dos publishers
+│   ├── openapi-manejo.yaml          # OpenAPI da API de manejo
 │   └── IA.md                        # registro de uso de IA
 ├── servico-pesagem/                 # publisher de pesagens
 ├── servico-vacinacao/               # publisher de vacinações
+├── servico-expedicao/                # publisher de embarques para abate
 └── servico-manejo/                  # consumidores, persistência e API de manejo
 ```
 
@@ -186,6 +234,12 @@ O conjunto inclui o teste de idempotência do histórico de pesagens: a entrega 
 |---|---|
 | Decisão do domínio | [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md) |
 | Contrato de `VacinacaoRegistrada` | [docs/contrato.md](docs/contrato.md) |
+| Contrato de `PesagemRegistrada` | [docs/contrato-pesagem.md](docs/contrato-pesagem.md) |
+| Contrato de `AnimalEmbarcadoParaAbate` | [docs/contrato-embarque.md](docs/contrato-embarque.md) |
+| Contrato de `LoteFormado` | [docs/contrato-lote-formado.md](docs/contrato-lote-formado.md) |
+| Contrato de `LoteMovidoDePasto` | [docs/contrato-lote-movido-de-pasto.md](docs/contrato-lote-movido-de-pasto.md) |
+| OpenAPI dos publishers | [docs/openapi-eventos.yaml](docs/openapi-eventos.yaml) |
+| OpenAPI da API de manejo | [docs/openapi-manejo.yaml](docs/openapi-manejo.yaml) |
 | Entrega da aula 02 | [docs/entregas/aula-02.md](docs/entregas/aula-02.md) |
 | Entrega da aula 03 | [docs/entregas/aula-03.md](docs/entregas/aula-03.md) |
 | Registro de uso de IA | [docs/IA.md](docs/IA.md) |

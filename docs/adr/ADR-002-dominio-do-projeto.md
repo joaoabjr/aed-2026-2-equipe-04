@@ -18,8 +18,10 @@ Como ele atende cada um dos quatro critérios:
 
 - ponto de decisão com regra de negócio: o embarque só é confirmado se o peso do animal atingir a meta mínima acordada em contrato — é a expedição, e não o comercial, quem decide embarcar ou não com base nesse número.
 - sistema externo: o Sistema do Frigorífico, que recebe o romaneio de carga e pode recusar o animal na triagem de recebimento, fora do nosso controle de deploy.
-- caminho de exceção com compensação: AnimalRejeitadoNoEmbarque — quando o frigorífico recusa, o animal retorna ao lote de origem e a dieta é reavaliada, compensando a tentativa de venda que não se concretizou.
+- caminho de exceção com compensação: `AnimalRejeitadoNoEmbarque` — quando o frigorífico recusa o animal na triagem, o `servico-expedicao` registra a recusa de forma definitiva (o embarque rejeitado não é apagado nem reenviado) e o `servico-manejo`, consumindo esse evento, executa a compensação de forma permanente: o animal retorna ao lote de origem e a dieta é reavaliada, encerrando a tentativa de venda que não se concretizou. O retorno ao lote e a nova dieta não são temporários — ficam como o estado vigente do animal até uma nova decisão de manejo.
 - algo que valha reprocessar: PesagemRegistrada — se o serviço de pesagem cair ou o broker atrasar, o histórico de peso precisa ser reprocessável sem duplicar leituras, porque é o dado que sustenta a decisão de formar lote e de embarcar.
+
+**Regra transversal — registros idempotentes:** todo efeito persistido por um serviço é idempotente. No consumo de eventos, a dedup é pela chave `eventoId` (tabela `evento_processado`), nunca por `animalId` — vale para o histórico de pesagem, o histórico de vacinação e, futuramente, a compensação `AnimalRejeitadoNoEmbarque`. Nos cadastros expostos via REST (`fazenda`, `lote`, `animal`, `venda`), reenviar o mesmo `id` não duplica nem falha: retorna o registro já existente com `200 OK` (a primeira criação responde `201 Created`). Registro é a única forma de o sistema aceitar reentrega — o reenvio não altera o que já foi gravado.
 
 ## Alternativas consideradas
 

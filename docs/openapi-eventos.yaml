@@ -1,0 +1,181 @@
+openapi: 3.0.3
+info:
+  title: APIs de Pesagem, Vacinação e Expedição
+  version: 1.0.0
+  description: |
+    APIs que recebem fatos de pesagem e vacinação e os publicam no Kafka como
+    CloudEvents 1.0 em modo binário. Uma resposta 202 confirma somente que o
+    serviço aceitou o evento para publicação; o processamento pelo serviço de
+    manejo é assíncrono.
+paths:
+  /pesagens:
+    post:
+      servers:
+        - url: http://localhost:8080
+          description: Serviço de pesagem
+      tags: [Pesagem]
+      summary: Aceita e publica uma pesagem de animal
+      description: Publica no tópico `gado.animal.pesagem-registrada.v1`, usando `animalId` como chave de partição.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PesagemRegistrada'
+            example:
+              eventoId: evt-pes-2026-000123
+              ocorridoEm: '2026-08-20T09:15:00Z'
+              animalId: AN-004821
+              pesoKg: 412.6
+              metodoDePesagem: balanca-eletronica
+      responses:
+        '202':
+          description: Evento aceito para publicação assíncrona.
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+  /vacinacao:
+    post:
+      servers:
+        - url: http://localhost:8085
+          description: Serviço de vacinação
+      tags: [Vacinação]
+      summary: Aceita e publica uma vacinação de animal
+      description: Publica no tópico `gado.animal.vacinacao-registrada.v1`, usando `animalId` como chave de partição.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VacinacaoRegistrada'
+            example:
+              eventoId: evt-vac-2026-000123
+              ocorridoEm: '2026-08-20T09:15:00Z'
+              animalId: AN-004821
+              pesoKg: 398.5
+              metodoDeVacinacao: subcutanea
+              vacina: Febre Aftosa
+              validade: '2027-02-20T23:59:59Z'
+      responses:
+        '202':
+          description: Evento aceito para publicação assíncrona.
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+  /embarques:
+    post:
+      servers:
+        - url: http://localhost:8086
+          description: Serviço de expedição
+      tags: [Expedição]
+      summary: Aceita e publica um embarque confirmado para abate
+      description: Publica no tópico `gado.animal.embarcado-para-abate.v1`, usando `animalId` como chave de partição.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnimalEmbarcadoParaAbate'
+            example:
+              eventoId: evt-emb-2026-000001
+              ocorridoEm: '2026-09-14T10:30:00Z'
+              animalId: AN-004821
+              frigorificoDestino: Frigorífico Exemplo S.A.
+              pesoDeEmbarqueKg: 480.5
+      responses:
+        '202':
+          description: Evento aceito para publicação assíncrona.
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+components:
+  responses:
+    RequisicaoInvalida:
+      description: Corpo ausente, JSON inválido ou campo obrigatório ausente.
+  schemas:
+    PesagemRegistrada:
+      type: object
+      description: Fato publicado no tópico `gado.animal.pesagem-registrada.v1`.
+      required: [eventoId, ocorridoEm, animalId, pesoKg]
+      properties:
+        eventoId:
+          type: string
+          description: Identificador único do evento, usado pelo consumidor para idempotência.
+          example: evt-pes-2026-000123
+        ocorridoEm:
+          type: string
+          format: date-time
+          description: Momento em que a pesagem ocorreu, em ISO-8601 UTC.
+        animalId:
+          type: string
+          description: Identificador do animal e chave de partição Kafka.
+          example: AN-004821
+        pesoKg:
+          type: number
+          format: double
+          description: Peso medido em quilogramas.
+          example: 412.6
+        metodoDePesagem:
+          type: string
+          nullable: true
+          description: Método ou equipamento de medição.
+          example: balanca-eletronica
+    VacinacaoRegistrada:
+      type: object
+      description: Fato publicado no tópico `gado.animal.vacinacao-registrada.v1`.
+      required: [eventoId, ocorridoEm, animalId, pesoKg, vacina, validade]
+      properties:
+        eventoId:
+          type: string
+          description: Identificador único do evento, usado pelo consumidor para idempotência.
+          example: evt-vac-2026-000123
+        ocorridoEm:
+          type: string
+          format: date-time
+          description: Momento em que a vacinação ocorreu, em ISO-8601 UTC.
+        animalId:
+          type: string
+          description: Identificador do animal e chave de partição Kafka.
+          example: AN-004821
+        pesoKg:
+          type: number
+          format: double
+          description: Peso do animal no momento da aplicação, em quilogramas.
+          example: 398.5
+        metodoDeVacinacao:
+          type: string
+          nullable: true
+          description: Via de aplicação da dose.
+          example: subcutanea
+        vacina:
+          type: string
+          description: Imunobiológico aplicado.
+          example: Febre Aftosa
+        validade:
+          type: string
+          format: date-time
+          description: Data-limite de validade da proteção, em ISO-8601 UTC.
+          example: '2027-02-20T23:59:59Z'
+    AnimalEmbarcadoParaAbate:
+      type: object
+      description: Fato que encerra fisicamente o ciclo de engorda do animal.
+      required: [eventoId, ocorridoEm, animalId, frigorificoDestino, pesoDeEmbarqueKg]
+      properties:
+        eventoId:
+          type: string
+          description: Identificador único do evento, usado pelo consumidor para idempotência.
+          example: evt-emb-2026-000001
+        ocorridoEm:
+          type: string
+          format: date-time
+          description: Momento efetivo do embarque, em ISO-8601 UTC.
+        animalId:
+          type: string
+          description: Identificador do animal e chave de partição Kafka.
+          example: AN-004821
+        frigorificoDestino:
+          type: string
+          description: Frigorífico que confirmou o recebimento.
+          example: Frigorífico Exemplo S.A.
+        pesoDeEmbarqueKg:
+          type: number
+          format: double
+          description: Peso aferido no embarque, em quilogramas.
+          example: 480.5
