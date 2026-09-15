@@ -178,21 +178,38 @@ No recurso **lote**, o identificador de negócio é `numeracao`; o campo anterio
 }
 ```
 
-O mesmo processo registra três consumidores independentes:
+O mesmo processo registra quatro consumidores independentes:
 
 | Listener | Grupo Kafka | Tópico | Efeito |
 |---|---|---|---|
 | `PesagemListener` | `manejo` | `gado.animal.pesagem-registrada.v1` | Grava o histórico de peso. |
 | `VacinacaoListener` | `manejo-vacinacao` | `gado.animal.vacinacao-registrada.v1` | Grava o histórico de vacinação. |
 | `PesagemAgregadaPorMinutoListener` | `pesagem-agregador` | `gado.animal.pesagem-registrada.v1` | Registra no log o peso médio do rebanho por janela de um minuto. |
+| `LoteLocalizacaoListener` | `lote-localizacao` | `gado.lote.formado.v1` + `gado.lote.movido-de-pasto.v1` | Anexa cada evento ao event store do lote (ADR-005) e atualiza a projeção de localização atual. |
 
 Os grupos distintos recebem o fluxo completo do tópico; portanto, o agregador não compete com o consumidor que persiste o histórico. A janela é calculada a partir de `ocorridoEm` e fechada cerca de 15 segundos após seu término para aceitar pequenos atrasos.
 
 O contrato de `PesagemRegistrada` (`gado.animal.pesagem-registrada.v1`) está em [`docs/contrato-pesagem.md`](docs/contrato-pesagem.md), e o de `VacinacaoRegistrada` em [`docs/contrato.md`](docs/contrato.md): os dois eventos que o serviço de manejo consome têm contrato escrito.
 
-O serviço de manejo também publica `LoteFormado` em `gado.lote.formado.v1`. O contrato está em [`docs/contrato-lote-formado.md`](docs/contrato-lote-formado.md); Nutrição e Manejo de Pasto podem consumi-lo sem acoplamento ao produtor.
+O serviço de manejo também publica `LoteFormado` em `gado.lote.formado.v1`. O contrato está em [`docs/contrato-lote-formado.md`](docs/contrato-lote-formado.md); Nutrição e Manejo de Pasto podem consumi-lo sem acoplamento ao produtor — e é também o primeiro evento do event store de localização do lote (ver `docs/adr/ADR-005-event-sourcing.md`).
 
-O agregado Manejo de Pasto publica `LoteMovidoDePasto` em `gado.lote.movido-de-pasto.v1`. O contrato está em [`docs/contrato-lote-movido-de-pasto.md`](docs/contrato-lote-movido-de-pasto.md); Nutrição e Sanidade podem consumi-lo independentemente.
+O agregado Manejo de Pasto publica `LoteMovidoDePasto` em `gado.lote.movido-de-pasto.v1`. O contrato está em [`docs/contrato-lote-movido-de-pasto.md`](docs/contrato-lote-movido-de-pasto.md); Nutrição e Sanidade podem consumi-lo independentemente — e é o evento que atualiza a localização atual do lote.
+
+### Localização atual do lote (event sourcing — ADR-005)
+
+Depois de formar um lote e movê-lo de pasto (endpoints acima), a localização atual — reconstruída a partir do event store, não guardada numa coluna mutável — fica disponível em:
+
+```bash
+curl http://localhost:8083/api/lotes/LOTE-001/localizacao
+```
+
+Para reconstruir a projeção do zero, relendo só o event store (caminho manual de reprocessamento, sem automação):
+
+```bash
+curl -X POST http://localhost:8083/api/lotes/LOTE-001/localizacao/reconstruir
+```
+
+Detalhes da decisão (por que este agregado, o que o event store garante, a defasagem tolerada) em [`docs/adr/ADR-005-event-sourcing.md`](docs/adr/ADR-005-event-sourcing.md) e [`docs/entregas/aula-05.md`](docs/entregas/aula-05.md).
 
 O caminho de exceção do domínio é a recusa do animal no frigorífico (`AnimalRejeitadoNoEmbarque`): registrada de forma definitiva pela expedição, ela dispara a compensação no manejo — o animal retorna ao lote de origem e a dieta é reavaliada, como efeito permanente (ver [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md)).
 

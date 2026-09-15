@@ -75,3 +75,21 @@ Ferramenta usada: Claude (Anthropic), em conversa de apoio à modelagem e ao esq
 **Sugestão da IA:** apresentou as duas opções sem empurrar nenhuma — destacou que um agregador novo por `loteId` "ilustraria melhor", na prática, a distinção que o ADR-003 só descreve em texto.
 
 **O que recusamos, e por quê:** recusamos construir o agregador novo. Nenhuma pergunta de negócio hoje pede "peso médio por lote" — o próprio ADR-003 já registra essa lacuna na seção de consequências aceitas, como algo que fica em aberto, não como pendência desta entrega. Escrever um agregador novo só para ilustrar melhor uma decisão que o texto do ADR já sustenta seria trabalho extra sem necessidade prática, na contramão do que o curso pede repetidamente (não modelar em cima de pergunta hipotética). Reaproveitamos o agregador da aula 03 e escrevemos, no `docs/entregas/aula-04.md`, por que a chave `animalId` não atrapalha essa agregação específica — que é exatamente o vínculo entre ADR e código que a etapa pede.
+
+## Aula 05
+
+### Interação 1 — como fazer o upsert da projeção
+
+**Pedido:** implementar a escrita de `lote_localizacao_atual` (a projeção do ADR-005), que precisa ou inserir a linha do lote (primeira vez) ou atualizar o pasto atual (vezes seguintes) — o clássico upsert.
+
+**Sugestão da IA:** usar `MERGE INTO lote_localizacao_atual (...) KEY (lote_id) VALUES (...)`, sintaxe suportada pelo H2 e mais curta que fazer duas instruções separadas.
+
+**O que recusamos, e por quê:** recusamos. `MERGE ... KEY (...)` é sintaxe proprietária do H2 — não existe em Postgres, que usa `INSERT ... ON CONFLICT` (sintaxe diferente) para o mesmo efeito. O comentário no topo do `schema.sql` já é explícito: "mesmo schema.sql roda nos dois [Postgres e H2], sem perfil condicional" — usar uma sintaxe que só funciona num dos dois quebraria essa garantia assim que o código rodasse contra o Postgres real, não só contra o H2 dos testes. Implementamos um `UPDATE` seguido de `INSERT` só se nenhuma linha foi afetada — mais verboso, mas portátil entre os dois bancos sem exceção nem perfil condicional, o mesmo espírito do `schema.sql` que já existia.
+
+### Interação 2 — chave estrangeira no event store
+
+**Pedido:** revisar o desenho de `lote_evento_store` e `lote_localizacao_atual` antes de implementar.
+
+**Sugestão da IA:** adicionar `REFERENCES lote(id)` na coluna `lote_id` das duas tabelas novas, para garantir integridade referencial com a tabela `lote` já existente.
+
+**O que recusamos, e por quê:** recusamos. As tabelas de histórico já existentes no projeto (`historico_pesagem`, `historico_vacinacao`) deliberadamente não têm FK para `animal` — são tabelas de fato, não de cadastro, e não deveriam travar a gravação de um evento por causa do estado atual de uma tabela de cadastro (ou, pior, por uma ordem de escrita que ainda não chegou). Seguimos o mesmo padrão para o event store do Lote: manter as duas tabelas desacopladas de `lote` é consistente com o resto do schema, e evitou que o teste de replay (`LoteLocalizacaoServiceTest`) precisasse popular `Fazenda`/`Lote` só para poder gravar eventos com um `loteId` de teste — o teste ficou focado só na lógica do fold, que é o que a aula pede para provar.
