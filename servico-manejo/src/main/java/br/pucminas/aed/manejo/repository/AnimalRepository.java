@@ -94,13 +94,6 @@ public class AnimalRepository {
                 id).stream().findFirst();
     }
 
-    public boolean existePorId(String id) {
-        Long count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM animal WHERE id = ? AND deleted_at IS NULL",
-                Long.class, id);
-        return count != null && count > 0;
-    }
-
     public void atualizar(Animal animal) {
         animal.setUpdatedAt(Instant.now());
         jdbcTemplate.update(

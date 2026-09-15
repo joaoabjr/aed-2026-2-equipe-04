@@ -26,3 +26,5 @@ demo:
   topico: gado.animal.pesagem-registrada.v1
   topico-vacinacao: gado.animal.vacinacao-registrada.v1
   grupo-vacinacao: manejo-vacinacao
+  topico-lote-formado: gado.lote.formado.v1
+  topico-lote-movido-de-pasto: gado.lote.movido-de-pasto.v1

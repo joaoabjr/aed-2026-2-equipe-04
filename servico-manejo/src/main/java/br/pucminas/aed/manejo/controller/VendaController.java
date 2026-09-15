@@ -26,12 +26,12 @@ public class VendaController {
 
     @PostMapping
     public ResponseEntity<Venda> registrar(@Valid @RequestBody Venda venda) {
-        log.info("Recebida requisicao para registrar venda: {}", venda.getId());
+        boolean jaExistia = vendaService.buscarPorId(venda.getId()).isPresent();
+        Venda resultado = vendaService.registrar(venda);
 
-        Venda salva = vendaService.registrar(venda);
-
-        log.info("Venda registrada com sucesso: {}", salva.getId());
-        return ResponseEntity.status(HttpStatus.CREATED).body(salva);
+        HttpStatus status = jaExistia ? HttpStatus.OK : HttpStatus.CREATED;
+        log.info("Venda {}  id={}", jaExistia ? "ja existia (reenvio idempotente)" : "registrada com sucesso", resultado.getId());
+        return ResponseEntity.status(status).body(resultado);
     }
 
     @GetMapping("/{id}")

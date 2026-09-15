@@ -4,22 +4,32 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.kafka.support.serializer.JsonSerializer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import br.pucminas.aed.manejo.domain.PesagemRegistradaEvent;
 import br.pucminas.aed.manejo.domain.VacinacaoRegistradaEvent;
+import br.pucminas.aed.manejo.domain.LoteFormadoEvent;
+import br.pucminas.aed.manejo.domain.LoteMovidoDePastoEvent;
 
 /**
  * Mesma logica do PesagemConfig do lado publisher, espelhada aqui: o
@@ -57,7 +67,54 @@ public class ManejoConfig {
     public ObjectMapper objectMapper() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         return mapper;
+    }
+
+    @Bean
+    public ProducerFactory<String, LoteFormadoEvent> loteFormadoProducerFactory(
+            @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+            ObjectMapper objectMapper) {
+        Map<String, Object> propriedades = new HashMap<>();
+        propriedades.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        propriedades.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        JsonSerializer<LoteFormadoEvent> serializador = new JsonSerializer<>(objectMapper);
+        serializador.setAddTypeInfo(false);
+        return new DefaultKafkaProducerFactory<>(propriedades, new StringSerializer(), serializador);
+    }
+
+    @Bean
+    public KafkaTemplate<String, LoteFormadoEvent> loteFormadoKafkaTemplate(
+            ProducerFactory<String, LoteFormadoEvent> loteFormadoProducerFactory) {
+        return new KafkaTemplate<>(loteFormadoProducerFactory);
+    }
+
+    @Bean
+    public NewTopic topicoLoteFormado(@Value("${demo.topico-lote-formado}") String nomeDoTopico) {
+        return new NewTopic(nomeDoTopico, 3, (short) 1);
+    }
+
+    @Bean
+    public ProducerFactory<String, LoteMovidoDePastoEvent> loteMovidoDePastoProducerFactory(
+            @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+            ObjectMapper objectMapper) {
+        Map<String, Object> propriedades = new HashMap<>();
+        propriedades.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        propriedades.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        JsonSerializer<LoteMovidoDePastoEvent> serializador = new JsonSerializer<>(objectMapper);
+        serializador.setAddTypeInfo(false);
+        return new DefaultKafkaProducerFactory<>(propriedades, new StringSerializer(), serializador);
+    }
+
+    @Bean
+    public KafkaTemplate<String, LoteMovidoDePastoEvent> loteMovidoDePastoKafkaTemplate(
+            ProducerFactory<String, LoteMovidoDePastoEvent> loteMovidoDePastoProducerFactory) {
+        return new KafkaTemplate<>(loteMovidoDePastoProducerFactory);
+    }
+
+    @Bean
+    public NewTopic topicoLoteMovidoDePasto(@Value("${demo.topico-lote-movido-de-pasto}") String nomeDoTopico) {
+        return new NewTopic(nomeDoTopico, 3, (short) 1);
     }
 
     @Bean

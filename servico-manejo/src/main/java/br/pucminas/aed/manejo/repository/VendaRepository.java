@@ -56,13 +56,6 @@ public class VendaRepository {
                 id).stream().findFirst();
     }
 
-    public boolean existePorId(String id) {
-        Long count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM venda WHERE id = ? AND deleted_at IS NULL",
-                Long.class, id);
-        return count != null && count > 0;
-    }
-
     public List<Venda> buscarPorAnimal(String animalId) {
         return jdbcTemplate.query(
                 "SELECT * FROM venda WHERE animal_id = ? AND deleted_at IS NULL ORDER BY created_at",

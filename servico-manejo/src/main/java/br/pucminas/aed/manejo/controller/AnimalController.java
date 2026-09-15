@@ -27,12 +27,12 @@ public class AnimalController {
 
     @PostMapping
     public ResponseEntity<Animal> registrar(@Valid @RequestBody Animal animal) {
-        log.info("Recebida requisicao para registrar animal: {}", animal.getId());
+        boolean jaExistia = animalService.buscarPorId(animal.getId()).isPresent();
+        Animal resultado = animalService.registrar(animal);
 
-        Animal salvo = animalService.registrar(animal);
-
-        log.info("Animal registrado com sucesso: {}", salvo.getId());
-        return ResponseEntity.status(HttpStatus.CREATED).body(salvo);
+        HttpStatus status = jaExistia ? HttpStatus.OK : HttpStatus.CREATED;
+        log.info("Animal {}  id={}", jaExistia ? "ja existia (reenvio idempotente)" : "registrado com sucesso", resultado.getId());
+        return ResponseEntity.status(status).body(resultado);
     }
 
     @GetMapping("/{id}")

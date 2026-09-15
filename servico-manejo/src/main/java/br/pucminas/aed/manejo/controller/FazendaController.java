@@ -26,12 +26,12 @@ public class FazendaController {
 
     @PostMapping
     public ResponseEntity<Fazenda> registrar(@Valid @RequestBody Fazenda fazenda) {
-        log.info("Recebida requisicao para registrar fazenda: {}", fazenda.getId());
+        boolean jaExistia = fazendaService.buscarPorId(fazenda.getId()).isPresent();
+        Fazenda resultado = fazendaService.registrar(fazenda);
 
-        fazendaService.registrar(fazenda);
-
-        log.info("Fazenda registrada com sucesso: {}", fazenda.getId());
-        return ResponseEntity.status(HttpStatus.CREATED).body(fazenda);
+        HttpStatus status = jaExistia ? HttpStatus.OK : HttpStatus.CREATED;
+        log.info("Fazenda {}  id={}", jaExistia ? "ja existia (reenvio idempotente)" : "registrada com sucesso", resultado.getId());
+        return ResponseEntity.status(status).body(resultado);
     }
 
     @GetMapping("/{id}")

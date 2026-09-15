@@ -27,18 +27,18 @@ public class AnimalService {
 
     @Transactional
     public Animal registrar(Animal animal) {
-        if (animalRepository.existePorId(animal.getId())) {
-            throw new IllegalArgumentException("Animal com ID " + animal.getId() + " ja existe");
-        }
-        if (loteService.buscarPorId(animal.getLote().getId()).isEmpty()) {
-            throw new IllegalArgumentException("Lote com ID " + animal.getLote().getId() + " nao existe");
-        }
+        return animalRepository.buscarPorId(animal.getId())
+                .orElseGet(() -> {
+                    if (loteService.buscarPorId(animal.getLote().getId()).isEmpty()) {
+                        throw new IllegalArgumentException("Lote com ID " + animal.getLote().getId() + " nao existe");
+                    }
 
-        animalRepository.salvar(animal);
+                    animalRepository.salvar(animal);
 
-        log.info("animal registrado  id={}  nome={}  raca={}  idade={}  lote={}",
-                animal.getId(), animal.getNomeDoAnimal(), animal.getRaca(), animal.getIdade(), animal.getLote().getId());
-        return animal;
+                    log.info("animal registrado  id={}  nome={}  raca={}  idade={}  lote={}",
+                            animal.getId(), animal.getNomeDoAnimal(), animal.getRaca(), animal.getIdade(), animal.getLote().getId());
+                    return animal;
+                });
     }
 
     @Transactional(readOnly = true)

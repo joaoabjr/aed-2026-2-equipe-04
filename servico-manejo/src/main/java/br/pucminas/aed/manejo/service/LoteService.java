@@ -23,15 +23,16 @@ public class LoteService {
     }
 
     @Transactional
-    public void registrar(Lote lote) {
-        if (loteRepository.buscarPorId(lote.getId()).isPresent()) {
-            throw new IllegalArgumentException("Lote com ID " + lote.getId() + " ja existe");
-        }
-        if (fazendaService.buscarPorId(lote.getFazenda().getId()).isEmpty()) {
-            throw new IllegalArgumentException("Fazenda com ID " + lote.getFazenda().getId() + " nao existe");
-        }
-        loteRepository.salvar(lote);
-        log.info("lote registrado  id={}  numeracao={}  fazenda={}", lote.getId(), lote.getNumeracao(), lote.getFazenda().getId());
+    public Lote registrar(Lote lote) {
+        return loteRepository.buscarPorId(lote.getId())
+                .orElseGet(() -> {
+                    if (fazendaService.buscarPorId(lote.getFazenda().getId()).isEmpty()) {
+                        throw new IllegalArgumentException("Fazenda com ID " + lote.getFazenda().getId() + " nao existe");
+                    }
+                    loteRepository.salvar(lote);
+                    log.info("lote registrado  id={}  numeracao={}  fazenda={}", lote.getId(), lote.getNumeracao(), lote.getFazenda().getId());
+                    return lote;
+                });
     }
 
     @Transactional(readOnly = true)

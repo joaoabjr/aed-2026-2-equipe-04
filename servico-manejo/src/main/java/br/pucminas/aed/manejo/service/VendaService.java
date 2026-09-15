@@ -29,28 +29,27 @@ public class VendaService {
 
     @Transactional
     public Venda registrar(Venda venda) {
-        if (vendaRepository.existePorId(venda.getId())) {
-            throw new IllegalArgumentException("Venda com ID " + venda.getId() + " ja existe");
-        }
+        return vendaRepository.buscarPorId(venda.getId())
+                .orElseGet(() -> {
+                    boolean temAnimal = venda.getAnimalId() != null && !venda.getAnimalId().isBlank();
+                    boolean temLote = venda.getLoteId() != null && !venda.getLoteId().isBlank();
 
-        boolean temAnimal = venda.getAnimalId() != null && !venda.getAnimalId().isBlank();
-        boolean temLote = venda.getLoteId() != null && !venda.getLoteId().isBlank();
+                    if (temAnimal == temLote) {
+                        throw new IllegalArgumentException("Venda deve referenciar exatamente um alvo: animalId OU loteId");
+                    }
+                    if (temAnimal && animalRepository.buscarPorId(venda.getAnimalId()).isEmpty()) {
+                        throw new IllegalArgumentException("Animal com ID " + venda.getAnimalId() + " nao existe");
+                    }
+                    if (temLote && loteService.buscarPorId(venda.getLoteId()).isEmpty()) {
+                        throw new IllegalArgumentException("Lote com ID " + venda.getLoteId() + " nao existe");
+                    }
 
-        if (temAnimal == temLote) {
-            throw new IllegalArgumentException("Venda deve referenciar exatamente um alvo: animalId OU loteId");
-        }
-        if (temAnimal && animalRepository.buscarPorId(venda.getAnimalId()).isEmpty()) {
-            throw new IllegalArgumentException("Animal com ID " + venda.getAnimalId() + " nao existe");
-        }
-        if (temLote && loteService.buscarPorId(venda.getLoteId()).isEmpty()) {
-            throw new IllegalArgumentException("Lote com ID " + venda.getLoteId() + " nao existe");
-        }
+                    vendaRepository.salvar(venda);
 
-        vendaRepository.salvar(venda);
-
-        log.info("venda registrada  id={}  animal={}  lote={}  frigorifico={}",
-                venda.getId(), venda.getAnimalId(), venda.getLoteId(), venda.getFrigorifico());
-        return venda;
+                    log.info("venda registrada  id={}  animal={}  lote={}  frigorifico={}",
+                            venda.getId(), venda.getAnimalId(), venda.getLoteId(), venda.getFrigorifico());
+                    return venda;
+                });
     }
 
     @Transactional(readOnly = true)

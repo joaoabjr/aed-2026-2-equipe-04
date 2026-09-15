@@ -19,13 +19,18 @@ public class FazendaService {
         this.fazendaRepository = fazendaRepository;
     }
 
+    /**
+     * Idempotente por id: se a fazenda ja existe, retorna a registrada no banco
+     * (reentrega produz efeito nenhum alem do retorno) em vez de falhar.
+     */
     @Transactional
-    public void registrar(Fazenda fazenda) {
-        if (fazendaRepository.buscarPorId(fazenda.getId()).isPresent()) {
-            throw new IllegalArgumentException("Fazenda com ID " + fazenda.getId() + " ja existe");
-        }
-        fazendaRepository.salvar(fazenda);
-        log.info("fazenda registrada  id={}  nome={}", fazenda.getId(), fazenda.getNome());
+    public Fazenda registrar(Fazenda fazenda) {
+        return fazendaRepository.buscarPorId(fazenda.getId())
+                .orElseGet(() -> {
+                    fazendaRepository.salvar(fazenda);
+                    log.info("fazenda registrada  id={}  nome={}", fazenda.getId(), fazenda.getNome());
+                    return fazenda;
+                });
     }
 
     @Transactional(readOnly = true)
