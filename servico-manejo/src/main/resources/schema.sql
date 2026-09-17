@@ -87,6 +87,12 @@ CREATE INDEX IF NOT EXISTS idx_venda_lote ON venda(lote_id);
 CREATE INDEX IF NOT EXISTS idx_lote_fazenda ON lote(fazenda_id);
 CREATE INDEX IF NOT EXISTS idx_animal_lote ON animal(lote_id);
 
+-- Estado vigente da dieta do animal — nao e' historico (nao ha' tabela
+-- append-only para isso). E' escrita pela compensacao de
+-- AnimalRejeitadoNoEmbarque (ADR-002): fica nula para todo animal que
+-- nunca passou por essa reavaliacao.
+ALTER TABLE animal ADD COLUMN IF NOT EXISTS dieta_atual VARCHAR(64);
+
 -- Event store do agregado Lote (localizacao de pasto) — ADR-005.
 -- Append-only: nenhuma linha e' alterada nem apagada depois de gravada.
 -- (lote_id, versao) e' a chave: a propria restricao de unicidade e' o

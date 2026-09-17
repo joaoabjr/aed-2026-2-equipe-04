@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import br.pucminas.aed.expedicao.domain.AnimalEmbarcadoParaAbateEvent;
+import br.pucminas.aed.expedicao.domain.AnimalRejeitadoNoEmbarqueEvent;
 
 @Configuration
 public class ExpedicaoConfig {
@@ -51,6 +52,29 @@ public class ExpedicaoConfig {
 
     @Bean
     public NewTopic topicoEmbarque(@Value("${demo.topico}") String nomeDoTopico) {
+        return new NewTopic(nomeDoTopico, 3, (short) 1);
+    }
+
+    @Bean
+    public ProducerFactory<String, AnimalRejeitadoNoEmbarqueEvent> rejeicaoProducerFactory(
+            @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+            ObjectMapper objectMapper) {
+        Map<String, Object> propriedades = new HashMap<>();
+        propriedades.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        propriedades.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        JsonSerializer<AnimalRejeitadoNoEmbarqueEvent> serializador = new JsonSerializer<>(objectMapper);
+        serializador.setAddTypeInfo(false);
+        return new DefaultKafkaProducerFactory<>(propriedades, new StringSerializer(), serializador);
+    }
+
+    @Bean
+    public KafkaTemplate<String, AnimalRejeitadoNoEmbarqueEvent> rejeicaoKafkaTemplate(
+            ProducerFactory<String, AnimalRejeitadoNoEmbarqueEvent> rejeicaoProducerFactory) {
+        return new KafkaTemplate<>(rejeicaoProducerFactory);
+    }
+
+    @Bean
+    public NewTopic topicoRejeicao(@Value("${demo.topico-rejeicao}") String nomeDoTopico) {
         return new NewTopic(nomeDoTopico, 3, (short) 1);
     }
 }

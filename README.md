@@ -24,6 +24,7 @@ servico-pesagem   ─PesagemRegistrada──> Kafka ──> servico-manejo      
                                                           └──> média de peso por minuto (log)
 servico-vacinacao ─VacinacaoRegistrada─> Kafka ──> servico-manejo               ──> PostgreSQL
 servico-expedicao ─AnimalEmbarcadoParaAbate─> Kafka ──> Financeiro / Rastreabilidade
+servico-expedicao ─AnimalRejeitadoNoEmbarque─> Kafka ──> servico-manejo (compensação)
 servico-manejo    ─LoteFormado / LoteMovidoDePasto─> Kafka ──> Nutrição / Sanidade
 ```
 
@@ -150,6 +151,22 @@ curl -i -X POST http://localhost:8086/embarques \
 
 Resposta esperada: `202 Accepted`. O evento é publicado no tópico `gado.animal.embarcado-para-abate.v1`.
 
+### Rejeição de embarque (caminho de exceção)
+
+```bash
+curl -i -X POST http://localhost:8086/rejeicoes \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "eventoId": "evt-rej-2026-000001",
+    "ocorridoEm": "2026-09-14T11:00:00Z",
+    "animalId": "AN-004821",
+    "frigorificoDestino": "Frigorífico Exemplo S.A.",
+    "motivoRejeicao": "PESO_INSUFICIENTE"
+  }'
+```
+
+Resposta esperada: `202 Accepted`. O evento é publicado no tópico `gado.animal.rejeitado-no-embarque.v1` e, do lado do serviço de manejo, dispara a compensação descrita no [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md) e detalhada em [`docs/contrato-rejeicao-embarque.md`](docs/contrato-rejeicao-embarque.md).
+
 ## Serviço de manejo
 
 Além dos consumidores Kafka, o serviço expõe endpoints REST para o cadastro da estrutura do rebanho (spec em [`docs/openapi-manejo.yaml`](docs/openapi-manejo.yaml)):
@@ -186,6 +203,7 @@ O mesmo processo registra quatro consumidores independentes:
 | `VacinacaoListener` | `manejo-vacinacao` | `gado.animal.vacinacao-registrada.v1` | Grava o histórico de vacinação. |
 | `PesagemAgregadaPorMinutoListener` | `pesagem-agregador` | `gado.animal.pesagem-registrada.v1` | Registra no log o peso médio do rebanho por janela de um minuto. |
 | `LoteLocalizacaoListener` | `lote-localizacao` | `gado.lote.formado.v1` + `gado.lote.movido-de-pasto.v1` | Anexa cada evento ao event store do lote (ADR-005) e atualiza a projeção de localização atual. |
+| `RejeicaoEmbarqueListener` | `manejo-rejeicao-embarque` | `gado.animal.rejeitado-no-embarque.v1` | Executa a compensação do caminho de exceção (ADR-002): reavalia a dieta do animal, reafirma o lote de origem e encerra a venda que não se concretizou. |
 
 Os grupos distintos recebem o fluxo completo do tópico; portanto, o agregador não compete com o consumidor que persiste o histórico. A janela é calculada a partir de `ocorridoEm` e fechada cerca de 15 segundos após seu término para aceitar pequenos atrasos.
 
@@ -211,7 +229,7 @@ curl -X POST http://localhost:8083/api/lotes/LOTE-001/localizacao/reconstruir
 
 Detalhes da decisão (por que este agregado, o que o event store garante, a defasagem tolerada) em [`docs/adr/ADR-005-event-sourcing.md`](docs/adr/ADR-005-event-sourcing.md) e [`docs/entregas/aula-05.md`](docs/entregas/aula-05.md).
 
-O caminho de exceção do domínio é a recusa do animal no frigorífico (`AnimalRejeitadoNoEmbarque`): registrada de forma definitiva pela expedição, ela dispara a compensação no manejo — o animal retorna ao lote de origem e a dieta é reavaliada, como efeito permanente (ver [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md)).
+O caminho de exceção do domínio é a recusa do animal no frigorífico (`AnimalRejeitadoNoEmbarque`): registrada de forma definitiva pela expedição (endpoint `POST /rejeicoes`, tópico `gado.animal.rejeitado-no-embarque.v1`), ela dispara a compensação no manejo — o animal retorna ao lote de origem, a dieta é reavaliada e a venda em aberto é encerrada, como efeito permanente (ver [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md) e [`docs/contrato-rejeicao-embarque.md`](docs/contrato-rejeicao-embarque.md)).
 
 ## Testes
 
@@ -221,7 +239,7 @@ Execute os testes do serviço de manejo com:
 mvn -f servico-manejo/pom.xml test
 ```
 
-O conjunto inclui o teste de idempotência do histórico de pesagens — a entrega repetida do mesmo evento deve produzir apenas um efeito persistido — e os testes de reenvio idempotente dos cadastros de fazenda, lote, animal e venda.
+O conjunto inclui o teste de idempotência do histórico de pesagens — a entrega repetida do mesmo evento deve produzir apenas um efeito persistido —, os testes de reenvio idempotente dos cadastros de fazenda, lote, animal e venda, e `CompensacaoEmbarqueServiceTest`, que cobre a compensação de `AnimalRejeitadoNoEmbarque`: a idempotência por `eventoId`, a regra de reavaliação de dieta por motivo de rejeição e o encerramento da venda em aberto.
 
 ## Estrutura do repositório
 
@@ -234,6 +252,7 @@ O conjunto inclui o teste de idempotência do histórico de pesagens — a entre
 │   ├── contrato.md                  # contrato de VacinacaoRegistrada
 │   ├── contrato-pesagem.md          # contrato de PesagemRegistrada
 │   ├── contrato-embarque.md         # contrato de AnimalEmbarcadoParaAbate
+│   ├── contrato-rejeicao-embarque.md # contrato de AnimalRejeitadoNoEmbarque
 │   ├── contrato-lote-formado.md     # contrato de LoteFormado
 │   ├── contrato-lote-movido-de-pasto.md  # contrato de LoteMovidoDePasto
 │   ├── openapi-eventos.yaml         # OpenAPI dos publishers
@@ -253,6 +272,7 @@ O conjunto inclui o teste de idempotência do histórico de pesagens — a entre
 | Contrato de `VacinacaoRegistrada` | [docs/contrato.md](docs/contrato.md) |
 | Contrato de `PesagemRegistrada` | [docs/contrato-pesagem.md](docs/contrato-pesagem.md) |
 | Contrato de `AnimalEmbarcadoParaAbate` | [docs/contrato-embarque.md](docs/contrato-embarque.md) |
+| Contrato de `AnimalRejeitadoNoEmbarque` | [docs/contrato-rejeicao-embarque.md](docs/contrato-rejeicao-embarque.md) |
 | Contrato de `LoteFormado` | [docs/contrato-lote-formado.md](docs/contrato-lote-formado.md) |
 | Contrato de `LoteMovidoDePasto` | [docs/contrato-lote-movido-de-pasto.md](docs/contrato-lote-movido-de-pasto.md) |
 | OpenAPI dos publishers | [docs/openapi-eventos.yaml](docs/openapi-eventos.yaml) |

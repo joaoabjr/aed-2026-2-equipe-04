@@ -9,3 +9,4 @@ spring:
 
 demo:
   topico: gado.animal.embarcado-para-abate.v1
+  topico-rejeicao: gado.animal.rejeitado-no-embarque.v1

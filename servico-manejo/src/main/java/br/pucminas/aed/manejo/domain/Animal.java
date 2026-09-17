@@ -29,6 +29,12 @@ public final class Animal {
     @NotNull(message = "Lote não pode ser nulo")
     private Lote lote;
 
+    // Estado vigente do animal, nao um historico: sem valor ate a primeira
+    // decisao de manejo que o defina (ex.: a compensacao de
+    // AnimalRejeitadoNoEmbarque, ADR-002). Fica nulo para todo animal que
+    // nunca passou por essa reavaliacao.
+    private String dietaAtual;
+
     private Instant createdAt;
     private Instant updatedAt;
     private Instant deletedAt;
@@ -57,11 +63,13 @@ public final class Animal {
     public Integer getIdade() { return idade; }
     public Date getDataDeNascimento() { return dataDeNascimento; }
     public Lote getLote() { return lote; }
+    public String getDietaAtual() { return dietaAtual; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getDeletedAt() { return deletedAt; }
 
     public void setLote(Lote lote) { this.lote = lote; }
+    public void setDietaAtual(String dietaAtual) { this.dietaAtual = dietaAtual; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
     public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }

@@ -27,3 +27,5 @@ demo:
   topico-lote-formado: gado.lote.formado.v1
   topico-lote-movido-de-pasto: gado.lote.movido-de-pasto.v1
   grupo-lote-localizacao: lote-localizacao-test
+  topico-rejeicao-embarque: gado.animal.rejeitado-no-embarque.v1
+  grupo-rejeicao-embarque: manejo-rejeicao-embarque-test

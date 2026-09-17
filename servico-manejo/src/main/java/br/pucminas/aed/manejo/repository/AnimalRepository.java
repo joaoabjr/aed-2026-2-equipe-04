@@ -56,6 +56,7 @@ public class AnimalRepository {
                 rs.getTimestamp("data_de_nascimento"),
                 lote
         );
+        animal.setDietaAtual(rs.getString("dieta_atual"));
         Timestamp createdAt = rs.getTimestamp("created_at");
         Timestamp updatedAt = rs.getTimestamp("updated_at");
         Timestamp deletedAt = rs.getTimestamp("deleted_at");
@@ -105,6 +106,20 @@ public class AnimalRepository {
                 animal.getLote().getId(),
                 Timestamp.from(animal.getUpdatedAt()),
                 animal.getId());
+    }
+
+    /**
+     * Update dirigido, so para o estado vigente que a compensacao de
+     * AnimalRejeitadoNoEmbarque escreve (ADR-002) — nao passa pelo
+     * {@code atualizar} de cadastro, que reescreve o animal inteiro e nao
+     * e chamado por um consumidor de evento.
+     */
+    public void atualizarDieta(String animalId, String dietaAtual) {
+        jdbcTemplate.update(
+                "UPDATE animal SET dieta_atual = ?, updated_at = ? WHERE id = ?",
+                dietaAtual,
+                Timestamp.from(Instant.now()),
+                animalId);
     }
 
     public void deletar(String id) {

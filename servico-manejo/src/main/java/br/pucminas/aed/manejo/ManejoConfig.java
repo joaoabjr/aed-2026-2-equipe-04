@@ -30,6 +30,7 @@ import br.pucminas.aed.manejo.domain.PesagemRegistradaEvent;
 import br.pucminas.aed.manejo.domain.VacinacaoRegistradaEvent;
 import br.pucminas.aed.manejo.domain.LoteFormadoEvent;
 import br.pucminas.aed.manejo.domain.LoteMovidoDePastoEvent;
+import br.pucminas.aed.manejo.domain.AnimalRejeitadoNoEmbarqueEvent;
 
 /**
  * Mesma logica do PesagemConfig do lado publisher, espelhada aqui: o
@@ -285,6 +286,44 @@ public class ManejoConfig {
         ConcurrentKafkaListenerContainerFactory<String, LoteMovidoDePastoEvent> fabrica =
                 new ConcurrentKafkaListenerContainerFactory<>();
         fabrica.setConsumerFactory(loteMovidoDePastoConsumerFactory);
+        fabrica.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return fabrica;
+    }
+
+    /**
+     * Consumidor do caminho de exceção AnimalRejeitadoNoEmbarque (ADR-002).
+     * Group.id proprio ("manejo-rejeicao-embarque"), ack MANUAL: a
+     * compensação (dieta + encerramento de venda) e' efeito de negocio
+     * permanente, nao so' observabilidade — mesmo desenho de
+     * PesagemListener/VacinacaoListener.
+     */
+    @Bean
+    public ConsumerFactory<String, AnimalRejeitadoNoEmbarqueEvent> rejeicaoEmbarqueConsumerFactory(
+            @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+            @Value("${demo.grupo-rejeicao-embarque}") String groupId,
+            ObjectMapper objectMapper) {
+
+        Map<String, Object> propriedades = new HashMap<>();
+        propriedades.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        propriedades.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        propriedades.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+        JsonDeserializer<AnimalRejeitadoNoEmbarqueEvent> deserializadorJson =
+                new JsonDeserializer<>(AnimalRejeitadoNoEmbarqueEvent.class, objectMapper);
+        deserializadorJson.addTrustedPackages("br.pucminas.aed.manejo.domain");
+        deserializadorJson.setUseTypeHeaders(false);
+
+        return new DefaultKafkaConsumerFactory<>(propriedades, new StringDeserializer(),
+                new ErrorHandlingDeserializer<>(deserializadorJson));
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, AnimalRejeitadoNoEmbarqueEvent> rejeicaoEmbarqueKafkaListenerContainerFactory(
+            ConsumerFactory<String, AnimalRejeitadoNoEmbarqueEvent> rejeicaoEmbarqueConsumerFactory) {
+
+        ConcurrentKafkaListenerContainerFactory<String, AnimalRejeitadoNoEmbarqueEvent> fabrica =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        fabrica.setConsumerFactory(rejeicaoEmbarqueConsumerFactory);
         fabrica.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         return fabrica;
     }

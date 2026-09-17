@@ -85,6 +85,31 @@ paths:
           description: Evento aceito para publicação assíncrona.
         '400':
           $ref: '#/components/responses/RequisicaoInvalida'
+  /rejeicoes:
+    post:
+      servers:
+        - url: http://localhost:8086
+          description: Serviço de expedição
+      tags: [Expedição]
+      summary: Aceita e publica a recusa do animal na triagem do frigorífico
+      description: Publica no tópico `gado.animal.rejeitado-no-embarque.v1`, usando `animalId` como chave de partição. Caminho de exceção do domínio (ADR-002) — dispara a compensação no servico-manejo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnimalRejeitadoNoEmbarque'
+            example:
+              eventoId: evt-rej-2026-000001
+              ocorridoEm: '2026-09-14T11:00:00Z'
+              animalId: AN-004821
+              frigorificoDestino: Frigorífico Exemplo S.A.
+              motivoRejeicao: PESO_INSUFICIENTE
+      responses:
+        '202':
+          description: Evento aceito para publicação assíncrona.
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
 components:
   responses:
     RequisicaoInvalida:
@@ -179,3 +204,28 @@ components:
           format: double
           description: Peso aferido no embarque, em quilogramas.
           example: 480.5
+    AnimalRejeitadoNoEmbarque:
+      type: object
+      description: Fato que registra a recusa do animal na triagem do frigorífico — caminho de exceção do domínio (ADR-002).
+      required: [eventoId, ocorridoEm, animalId, frigorificoDestino, motivoRejeicao]
+      properties:
+        eventoId:
+          type: string
+          description: Identificador único do evento, usado pelo consumidor para idempotência.
+          example: evt-rej-2026-000001
+        ocorridoEm:
+          type: string
+          format: date-time
+          description: Momento da recusa na triagem, em ISO-8601 UTC.
+        animalId:
+          type: string
+          description: Identificador do animal e chave de partição Kafka.
+          example: AN-004821
+        frigorificoDestino:
+          type: string
+          description: Frigorífico que recusou o animal.
+          example: Frigorífico Exemplo S.A.
+        motivoRejeicao:
+          type: string
+          description: Motivo da recusa. Valores previstos hoje — PESO_INSUFICIENTE, VACINACAO_VENCIDA — mas não é um enum fechado.
+          example: PESO_INSUFICIENTE
