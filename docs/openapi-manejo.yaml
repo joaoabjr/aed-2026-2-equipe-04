@@ -208,6 +208,26 @@ paths:
           description: Evento aceito para publicação assíncrona.
         '400':
           $ref: '#/components/responses/RequisicaoInvalida'
+  /api/dlq:
+    get:
+      tags: [DLQ]
+      summary: Lista a fila de mensagens mortas permanente (mais recentes primeiro)
+      description: |
+        Registros permanentes (tabela `evento_dlq`, ADR-006) do que o consumidor
+        deixou de processar nos fluxos de pesagem (`PesagemListener`) e embarque
+        (`RejeicaoEmbarqueListener`): poison message que não desserializou ou erro
+        de regra de negócio. O offset do tópico original é confirmado depois da
+        gravação, então a partição não trava; o acumulado fica para auditoria e
+        reprocessamento manual. Só leitura — o fluxo normal jamais apaga a DLQ.
+      responses:
+        '200':
+          description: Lista de registros da DLQ; vazia quando nada falhou.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventoDlq'
 components:
   parameters:
     Id:
@@ -362,4 +382,53 @@ components:
           type: string
           format: date-time
           nullable: true
+          readOnly: true
+    EventoDlq:
+      type: object
+      description: Uma linha da DLQ permanente — o evento de pesagem ou embarque que o consumidor não conseguiu processar.
+      required: [id, origemTopico, particao, deslocamento, payload, motivo, registradoEm]
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+        origemTopico:
+          type: string
+          description: Tópico Kafka original de onde veio a mensagem que falhou.
+          example: gado.animal.pesagem-registrada.v1
+        particao:
+          type: integer
+          readOnly: true
+        deslocamento:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Offset Kafka — junto com origemTopico/particao é a chave de deduplicação da DLQ.
+        chave:
+          type: string
+          nullable: true
+          description: Chave da mensagem (animalId) quando o record tinha chave.
+          example: AN-004821
+        eventoId:
+          type: string
+          nullable: true
+          description: Header CloudEvents ce_id, quando o cabeçalho existia.
+        tipoEvento:
+          type: string
+          nullable: true
+          description: Header CloudEvents ce_type, quando o cabeçalho existia.
+        payload:
+          type: string
+          description: Corpo da mensagem — os bytes originais no caso de poison message; a visão do manejo resserializada no caso de erro de regra.
+        motivo:
+          type: string
+          description: Classe simples da exceção raiz que derrubou o processamento.
+          example: DeserializationException
+        detalhe:
+          type: string
+          nullable: true
+          description: Mensagem da exceção raiz, limitada a 4000 caracteres.
+        registradoEm:
+          type: string
+          format: date-time
           readOnly: true

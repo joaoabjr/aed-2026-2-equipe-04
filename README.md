@@ -26,6 +26,7 @@ servico-vacinacao ─VacinacaoRegistrada─> Kafka ──> servico-manejo       
 servico-expedicao ─AnimalEmbarcadoParaAbate─> Kafka ──> Financeiro / Rastreabilidade
 servico-expedicao ─AnimalRejeitadoNoEmbarque─> Kafka ──> servico-manejo (compensação)
 servico-manejo    ─LoteFormado / LoteMovidoDePasto─> Kafka ──> Nutrição / Sanidade
+servico-manejo    ─falha de consumo (pesagem/embarque)─> evento_dlq (DLQ permanente)
 ```
 
 Os publishers enviam eventos CloudEvents 1.0 em modo binário. A chave de partição é o `animalId`, preservando a ordem dos eventos de cada animal. O `servico-manejo` persiste os históricos de pesagem e vacinação de forma idempotente, usando o `eventoId` para descartar entregas repetidas. Os cadastros REST (`fazenda`, `lote`, `animal`, `venda`) também são idempotentes por `id`: reenviar o mesmo `id` retorna o registro existente (`200`) em vez de duplicar ou falhar — a primeira criação responde `201`.
@@ -231,6 +232,18 @@ Detalhes da decisão (por que este agregado, o que o event store garante, a defa
 
 O caminho de exceção do domínio é a recusa do animal no frigorífico (`AnimalRejeitadoNoEmbarque`): registrada de forma definitiva pela expedição (endpoint `POST /rejeicoes`, tópico `gado.animal.rejeitado-no-embarque.v1`), ela dispara a compensação no manejo — o animal retorna ao lote de origem, a dieta é reavaliada e a venda em aberto é encerrada, como efeito permanente (ver [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md) e [`docs/contrato-rejeicao-embarque.md`](docs/contrato-rejeicao-embarque.md)).
 
+### DLQ permanente (ADR-006)
+
+Nos fluxos de **pesagem** (`PesagemListener`) e **embarque** (`RejeicaoEmbarqueListener`), quando o processamento falha — poison message que não desserializa ou erro de regra de negócio — e as tentativas se esgotam (`FixedBackOff(1000ms, 2)`), o `DefaultErrorHandler` chama o `DlqRecoverer`, que grava a falha na tabela **`evento_dlq`** (append-only, permanente) e só depois disso o offset do tópico original é confirmado (`ackAfterHandle`, que vale mesmo com ack-mode MANUAL). Nenhuma partição trava em mensagem inválida e nada é descartado em silêncio: se a gravação na DLQ falhar, a posição volta a ser entregue.
+
+A deduplicação da DLQ é por posição Kafka (`UNIQUE (origem_topico, particao, deslocamento)`), não por `eventoId` — poison messages podem não ter `ce_id` aproveitável, mas sempre têm topico/partição/offset. Inspecte o acúmulo (mais recentes primeiro):
+
+```bash
+curl http://localhost:8083/api/dlq
+```
+
+O endpoint é só leitura; o fluxo normal jamais apaga a DLQ — a correção da causa raiz e o reprocessamento manual são decisão humana. Decisão e consequências em [`docs/adr/ADR-006-dlq.md`](docs/adr/ADR-006-dlq.md), endpoint em [`docs/openapi-manejo.yaml`](docs/openapi-manejo.yaml).
+
 ## Testes
 
 Execute os testes do serviço de manejo com:
@@ -239,7 +252,7 @@ Execute os testes do serviço de manejo com:
 mvn -f servico-manejo/pom.xml test
 ```
 
-O conjunto inclui o teste de idempotência do histórico de pesagens — a entrega repetida do mesmo evento deve produzir apenas um efeito persistido —, os testes de reenvio idempotente dos cadastros de fazenda, lote, animal e venda, e `CompensacaoEmbarqueServiceTest`, que cobre a compensação de `AnimalRejeitadoNoEmbarque`: a idempotência por `eventoId`, a regra de reavaliação de dieta por motivo de rejeição e o encerramento da venda em aberto.
+O conjunto inclui o teste de idempotência do histórico de pesagens — a entrega repetida do mesmo evento deve produzir apenas um efeito persistido —, os testes de reenvio idempotente dos cadastros de fazenda, lote, animal e venda, `CompensacaoEmbarqueServiceTest`, que cobre a compensação de `AnimalRejeitadoNoEmbarque`: a idempotência por `eventoId`, a regra de reavaliação de dieta por motivo de rejeição e o encerramento da venda em aberto, e `DlqServiceTest`, que cobre a DLQ permanente (ADR-006): a gravação da falha, a deduplicação por posição Kafka, o limite de tamanho do payload/detalhe e o recoverer traduzindo tanto erro de regra de negócio quanto poison message (com os bytes originais do fio).
 
 ## Estrutura do repositório
 
@@ -269,6 +282,7 @@ O conjunto inclui o teste de idempotência do histórico de pesagens — a entre
 | Assunto | Documento |
 |---|---|
 | Decisão do domínio | [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md) |
+| DLQ permanente do manejo | [ADR-006](docs/adr/ADR-006-dlq.md) |
 | Contrato de `VacinacaoRegistrada` | [docs/contrato.md](docs/contrato.md) |
 | Contrato de `PesagemRegistrada` | [docs/contrato-pesagem.md](docs/contrato-pesagem.md) |
 | Contrato de `AnimalEmbarcadoParaAbate` | [docs/contrato-embarque.md](docs/contrato-embarque.md) |

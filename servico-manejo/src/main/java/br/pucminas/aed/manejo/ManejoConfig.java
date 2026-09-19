@@ -18,9 +18,11 @@ import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.kafka.support.serializer.JsonSerializer;
+import org.springframework.util.backoff.FixedBackOff;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -31,6 +33,7 @@ import br.pucminas.aed.manejo.domain.VacinacaoRegistradaEvent;
 import br.pucminas.aed.manejo.domain.LoteFormadoEvent;
 import br.pucminas.aed.manejo.domain.LoteMovidoDePastoEvent;
 import br.pucminas.aed.manejo.domain.AnimalRejeitadoNoEmbarqueEvent;
+import br.pucminas.aed.manejo.service.DlqRecoverer;
 
 /**
  * Mesma logica do PesagemConfig do lado publisher, espelhada aqui: o
@@ -140,13 +143,34 @@ public class ManejoConfig {
                 new ErrorHandlingDeserializer<PesagemRegistradaEvent>(deserializadorJson));
     }
 
+    /**
+     * A DLQ permanente (ADR-006) dos fluxos de pesagem e embarque. Quando o
+     * listener falha depois das tentativas do backoff — poison message que
+     * nao desserializa ou erro de regra de negocio — o recoverer grava a
+     * falha na tabela evento_dlq (DlqRecoverer/DlqService) em vez de a
+     * particao reprocessar para sempre. ackAfterHandle (default true) faz o
+     * container confirmar o offset do topico original MESMO com ack-mode
+     * MANUAL, logo que o recoverer sai sem erro: a confirmacao so acontece
+     * DEPOIS de a gravacao permanente ter terminado. Se a gravacao na DLQ
+     * falhar, o recoverer propaga o erro, nada e' confirmado e a posicao
+     * volta a ser entregue — nunca se perde mensagem em silencio.
+     */
+    @Bean
+    public DefaultErrorHandler dlqErrorHandler(DlqRecoverer dlqRecoverer) {
+        DefaultErrorHandler manipulador = new DefaultErrorHandler(dlqRecoverer, new FixedBackOff(1000L, 2));
+        manipulador.setAckAfterHandle(true);
+        return manipulador;
+    }
+
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, PesagemRegistradaEvent> kafkaListenerContainerFactory(
-            ConsumerFactory<String, PesagemRegistradaEvent> consumerFactory) {
+            ConsumerFactory<String, PesagemRegistradaEvent> consumerFactory,
+            DefaultErrorHandler dlqErrorHandler) {
 
         ConcurrentKafkaListenerContainerFactory<String, PesagemRegistradaEvent> fabrica =
                 new ConcurrentKafkaListenerContainerFactory<String, PesagemRegistradaEvent>();
         fabrica.setConsumerFactory(consumerFactory);
+        fabrica.setCommonErrorHandler(dlqErrorHandler);
         fabrica.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         return fabrica;
     }
@@ -319,11 +343,13 @@ public class ManejoConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, AnimalRejeitadoNoEmbarqueEvent> rejeicaoEmbarqueKafkaListenerContainerFactory(
-            ConsumerFactory<String, AnimalRejeitadoNoEmbarqueEvent> rejeicaoEmbarqueConsumerFactory) {
+            ConsumerFactory<String, AnimalRejeitadoNoEmbarqueEvent> rejeicaoEmbarqueConsumerFactory,
+            DefaultErrorHandler dlqErrorHandler) {
 
         ConcurrentKafkaListenerContainerFactory<String, AnimalRejeitadoNoEmbarqueEvent> fabrica =
                 new ConcurrentKafkaListenerContainerFactory<>();
         fabrica.setConsumerFactory(rejeicaoEmbarqueConsumerFactory);
+        fabrica.setCommonErrorHandler(dlqErrorHandler);
         fabrica.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         return fabrica;
     }
