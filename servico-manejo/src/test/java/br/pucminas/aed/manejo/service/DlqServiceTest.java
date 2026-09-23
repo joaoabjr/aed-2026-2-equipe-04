@@ -21,10 +21,11 @@ import br.pucminas.aed.manejo.domain.PesagemRegistradaEvent;
 /**
  * A DLQ permanente (ADR-006): o registro do que deixou de ser processado
  * nos fluxos de pesagem e embarque. Mesmo espirito dos outros testes do
- * servico — H2, sem Docker e sem broker — cobrindo (1) a gravacao e a
- * deduplicacao por posicao Kafka (origem_topico/particao/deslocamento) e
+ * servico -- H2, sem Docker e sem broker -- cobrindo (1) a gravacao e a
+ * deduplicacao por posicao Kafka (origem_topico/particao/deslocamento),
  * (2) o recoverer traduzindo os dois motivos de falha: poison message que
- * nao desserializa e erro de regra de negocio.
+ * nao desserializa e erro de regra de negocio, com o envelope de
+ * cabecalhos original preservado, e (3) o reprocessamento manual.
  *
  * Roda com: mvn -f servico-manejo/pom.xml test
  */
@@ -51,7 +52,7 @@ class DlqServiceTest {
     @Test
     void falhaRegistradaFicaGravaNaDlqPermanente() {
         boolean gravado = dlqService.registrar(TOPICO_PESAGEM, 1, 42, "AN-001", "evt-pes-001",
-                "gado.animal.pesagem-registrada.v1", "{\"pesoKg\":412.6}", "IllegalArgumentException",
+                "gado.animal.pesagem-registrada.v1", "{\"pesoKg\":412.6}", null, "IllegalArgumentException",
                 "peso negativo nao faz sentido");
 
         assertThat(gravado).isTrue();
@@ -71,9 +72,9 @@ class DlqServiceTest {
     @Test
     void mesmaPosicaoKafkaFicaGravadaUmaSoVez() {
         dlqService.registrar(TOPICO_PESAGEM, 0, 7, "AN-002", "evt-pes-002",
-                TOPICO_PESAGEM, "{\"pesoKg\":401.0}", "ExcecaoQualquer", "erro");
+                TOPICO_PESAGEM, "{\"pesoKg\":401.0}", null, "ExcecaoQualquer", "erro");
         boolean reentrega = dlqService.registrar(TOPICO_PESAGEM, 0, 7, "AN-002", "evt-pes-002",
-                TOPICO_PESAGEM, "{\"pesoKg\":401.0}", "ExcecaoQualquer", "erro");
+                TOPICO_PESAGEM, "{\"pesoKg\":401.0}", null, "ExcecaoQualquer", "erro");
 
         assertThat(reentrega).isFalse();
         assertThat(repositorio.contar()).isEqualTo(1L);
@@ -85,7 +86,7 @@ class DlqServiceTest {
         String detalheGrande = "d".repeat(10_000);
 
         dlqService.registrar(TOPICO_PESAGEM, 2, 9, "AN-003", "evt-pes-003",
-                TOPICO_PESAGEM, payloadGrande, "ErroQualquer", detalheGrande);
+                TOPICO_PESAGEM, payloadGrande, null, "ErroQualquer", detalheGrande);
 
         EventoDlqVO linha = repositorio.listar().get(0);
         assertThat(linha.getPayload()).hasSize(4000);
@@ -93,13 +94,17 @@ class DlqServiceTest {
     }
 
     @Test
-    void recovererMoveErroDeRegraDeNegocioParaADlq() {
+    void recovererMoveErroDeRegraDeNegocioParaADlqComOEnvelopeInteiro() {
         PesagemRegistradaEvent evento = new PesagemRegistradaEvent("evt-neg-001", Instant.parse("2026-09-14T10:00:00Z"),
                 "AN-004", 412.6);
         ConsumerRecord<String, PesagemRegistradaEvent> registro =
                 new ConsumerRecord<>(TOPICO_PESAGEM, 0, 12L, "AN-004", evento);
+        registro.headers().add(new RecordHeader("ce_specversion", "1.0".getBytes(StandardCharsets.UTF_8)));
         registro.headers().add(new RecordHeader("ce_id", "evt-neg-001".getBytes(StandardCharsets.UTF_8)));
+        registro.headers().add(new RecordHeader("ce_source", "/fazenda-corte/pesagem-service".getBytes(StandardCharsets.UTF_8)));
         registro.headers().add(new RecordHeader("ce_type", TOPICO_PESAGEM.getBytes(StandardCharsets.UTF_8)));
+        registro.headers().add(new RecordHeader("ce_time", "2026-09-14T10:00:00Z".getBytes(StandardCharsets.UTF_8)));
+        registro.headers().add(new RecordHeader("ce_subject", "animal/AN-004".getBytes(StandardCharsets.UTF_8)));
 
         dlqRecoverer.accept(registro, new IllegalArgumentException("animal inexistente"));
 
@@ -115,6 +120,11 @@ class DlqServiceTest {
         assertThat(linha.getMotivo()).isEqualTo("IllegalArgumentException");
         assertThat(linha.getPayload()).contains("\"pesoKg\"");
         assertThat(linha.getPayload()).contains("\"animalId\":\"AN-004\"");
+        // o envelope CloudEvents inteiro fica preservado, nao so ce_id/ce_type --
+        // e o que torna o reprocessamento fiel ao original possivel.
+        assertThat(linha.getCabecalhos()).contains("\"ce_specversion\":\"1.0\"");
+        assertThat(linha.getCabecalhos()).contains("\"ce_source\":\"/fazenda-corte/pesagem-service\"");
+        assertThat(linha.getCabecalhos()).contains("\"ce_subject\":\"animal/AN-004\"");
     }
 
     @Test
@@ -134,8 +144,48 @@ class DlqServiceTest {
         assertThat(linha.getDeslocamento()).isEqualTo(91L);
         assertThat(linha.getEventoId()).isEqualTo("evt-veneno");
         assertThat(linha.getMotivo()).isEqualTo("DeserializationException");
-        // a poison message nao tem visao desserializada — o payload e o BYTE
+        // a poison message nao tem visao desserializada -- o payload e o BYTE
         // A BYTE do que chegou no fio, nada reconstruido.
         assertThat(linha.getPayload()).isEqualTo(new String(bruto, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void buscarPorIdEncontraOEventoGravado() {
+        dlqService.registrar(TOPICO_PESAGEM, 1, 55, "AN-006", "evt-pes-006",
+                TOPICO_PESAGEM, "{\"pesoKg\":420.0}", "{\"ce_id\":\"evt-pes-006\"}",
+                "IllegalArgumentException", "causa ja corrigida");
+        long id = repositorio.listar().get(0).getId();
+
+        EventoDlqVO encontrado = repositorio.buscarPorId(id).orElseThrow();
+        assertThat(encontrado.getPayload()).isEqualTo("{\"pesoKg\":420.0}");
+        assertThat(repositorio.buscarPorId(id + 999)).isEmpty();
+    }
+
+    /**
+     * O caminho de DlqService.reprocessar() que toca Kafka de verdade
+     * (KafkaTemplate.send ao topico original) nao e' exercitado aqui pelo
+     * mesmo motivo de nenhum publisher do projeto ser testado nesta suite:
+     * o perfil de teste roda so com H2, sem broker (bootstrap-servers
+     * aponta pra um host que nunca responde, de proposito). O que E'
+     * testavel sem rede -- que cada tentativa de reprocessamento vira uma
+     * linha nova, e evento_dlq nunca e' alterada -- e' o que este teste
+     * cobre, direto no repositorio; a demonstracao ponta-a-ponta do
+     * reprocessamento esta no README (curl contra o servico rodando com
+     * Kafka de verdade).
+     */
+    @Test
+    void cadaTentativaDeReprocessamentoVirauUmaLinhaNovaSemAlterarEventoDlq() {
+        dlqService.registrar(TOPICO_PESAGEM, 1, 56, "AN-007", "evt-pes-007",
+                TOPICO_PESAGEM, "{\"pesoKg\":430.0}", null, "IllegalArgumentException", "causa ja corrigida");
+        long id = repositorio.listar().get(0).getId();
+
+        repositorio.registrarReprocessamento(id);
+        repositorio.registrarReprocessamento(id);
+
+        assertThat(repositorio.contarReprocessamentos(id)).isEqualTo(2);
+        // a linha original de evento_dlq continua igual -- reprocessar nunca a altera.
+        EventoDlqVO linha = repositorio.buscarPorId(id).orElseThrow();
+        assertThat(linha.getPayload()).isEqualTo("{\"pesoKg\":430.0}");
+        assertThat(linha.getMotivo()).isEqualTo("IllegalArgumentException");
     }
 }

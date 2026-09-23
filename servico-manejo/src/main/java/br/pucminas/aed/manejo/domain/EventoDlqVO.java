@@ -19,13 +19,14 @@ public final class EventoDlqVO {
     private final String eventoId;
     private final String tipoEvento;
     private final String payload;
+    private final String cabecalhos;
     private final String motivo;
     private final String detalhe;
     private final Instant registradoEm;
 
     public EventoDlqVO(long id, String origemTopico, int particao, long deslocamento,
                        String chave, String eventoId, String tipoEvento, String payload,
-                       String motivo, String detalhe, Instant registradoEm) {
+                       String cabecalhos, String motivo, String detalhe, Instant registradoEm) {
         this.id = id;
         this.origemTopico = origemTopico;
         this.particao = particao;
@@ -34,6 +35,7 @@ public final class EventoDlqVO {
         this.eventoId = eventoId;
         this.tipoEvento = tipoEvento;
         this.payload = payload;
+        this.cabecalhos = cabecalhos;
         this.motivo = motivo;
         this.detalhe = detalhe;
         this.registradoEm = registradoEm;
@@ -69,6 +71,10 @@ public final class EventoDlqVO {
 
     public String getPayload() {
         return payload;
+    }
+
+    public String getCabecalhos() {
+        return cabecalhos;
     }
 
     public String getMotivo() {

@@ -3,12 +3,12 @@ package br.pucminas.aed.manejo.service;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import br.pucminas.aed.manejo.domain.EventoDlqVO;
@@ -29,7 +29,7 @@ import br.pucminas.aed.manejo.domain.EventoDlqVO;
 public class DlqRepository {
 
     private static final String COLUNAS = "id, origem_topico, particao, deslocamento, chave, " +
-            "evento_id, tipo_evento, payload, motivo, detalhe, registrado_em";
+            "evento_id, tipo_evento, payload, cabecalhos, motivo, detalhe, registrado_em";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -43,13 +43,13 @@ public class DlqRepository {
      */
     public boolean registrar(String origemTopico, int particao, long deslocamento,
                              String chave, String eventoId, String tipoEvento,
-                             String payload, String motivo, String detalhe) {
+                             String payload, String cabecalhos, String motivo, String detalhe) {
         try {
             jdbcTemplate.update("INSERT INTO evento_dlq " +
                             "(origem_topico, particao, deslocamento, chave, evento_id, " +
-                            "tipo_evento, payload, motivo, detalhe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "tipo_evento, payload, cabecalhos, motivo, detalhe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     origemTopico, particao, deslocamento, chave, eventoId,
-                    tipoEvento, payload, motivo, detalhe);
+                    tipoEvento, payload, cabecalhos, motivo, detalhe);
             return true;
         } catch (DuplicateKeyException e) {
             return false;
@@ -61,12 +61,35 @@ public class DlqRepository {
                 (rs, rowNum) -> mapear(rs));
     }
 
+    public Optional<EventoDlqVO> buscarPorId(long id) {
+        try {
+            EventoDlqVO evento = jdbcTemplate.queryForObject(
+                    "SELECT " + COLUNAS + " FROM evento_dlq WHERE id = ?",
+                    (rs, rowNum) -> mapear(rs), id);
+            return Optional.ofNullable(evento);
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        }
+    }
+
     public long contar() {
         Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM evento_dlq", Long.class);
         return total == null ? 0L : total;
     }
 
+    /** Registra UMA tentativa de reprocessamento — nunca altera evento_dlq. */
+    public void registrarReprocessamento(long dlqId) {
+        jdbcTemplate.update("INSERT INTO dlq_reprocessamento (dlq_id) VALUES (?)", dlqId);
+    }
+
+    public int contarReprocessamentos(long dlqId) {
+        Integer total = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM dlq_reprocessamento WHERE dlq_id = ?", Integer.class, dlqId);
+        return total == null ? 0 : total;
+    }
+
     public void limparTudo() {
+        jdbcTemplate.update("DELETE FROM dlq_reprocessamento");
         jdbcTemplate.update("DELETE FROM evento_dlq");
     }
 
@@ -81,6 +104,7 @@ public class DlqRepository {
                 rs.getString("evento_id"),
                 rs.getString("tipo_evento"),
                 rs.getString("payload"),
+                rs.getString("cabecalhos"),
                 rs.getString("motivo"),
                 rs.getString("detalhe"),
                 registrado == null ? null : registrado.toInstant());

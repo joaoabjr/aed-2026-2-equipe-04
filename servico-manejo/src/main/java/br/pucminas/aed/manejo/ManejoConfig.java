@@ -353,4 +353,36 @@ public class ManejoConfig {
         fabrica.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         return fabrica;
     }
+
+    /**
+     * Producer cru (String) usado SO pelo reprocessamento manual da DLQ
+     * (DlqService.reprocessar) -- reenvia o payload gravado de volta ao
+     * topico original, como texto JSON, sem depender do tipo Java
+     * especifico do evento (pesagem ou rejeicao de embarque usam classes
+     * diferentes; o reprocessamento e' generico o bastante pra nao
+     * precisar saber qual). O consumidor de destino desserializa os bytes
+     * normalmente -- o Kafka nao associa serializer do produtor a
+     * deserializer do consumidor, so' importa o que trafega no fio.
+     *
+     * MAX_BLOCK_MS_CONFIG baixo de proposito: se o broker estiver
+     * inalcancavel, falha rapido em vez de bloquear o chamador por ate 60s
+     * (o padrao do cliente Kafka).
+     */
+    @Bean
+    public ProducerFactory<String, String> reprocessamentoProducerFactory(
+            @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers) {
+
+        Map<String, Object> propriedades = new HashMap<>();
+        propriedades.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        propriedades.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        propriedades.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        propriedades.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, 3000);
+        return new DefaultKafkaProducerFactory<>(propriedades);
+    }
+
+    @Bean
+    public KafkaTemplate<String, String> reprocessamentoKafkaTemplate(
+            ProducerFactory<String, String> reprocessamentoProducerFactory) {
+        return new KafkaTemplate<>(reprocessamentoProducerFactory);
+    }
 }

@@ -1,6 +1,8 @@
 package br.pucminas.aed.manejo.service;
 
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.Header;
@@ -60,8 +62,27 @@ public class DlqRecoverer implements ConsumerRecordRecoverer {
                 lerCabecalho(registro, CABECALHO_EVENTO_ID),
                 lerCabecalho(registro, CABECALHO_TIPO_EVENTO),
                 extrairPayload(registro, raiz),
+                todosOsCabecalhos(registro),
                 motivo(raiz),
                 raiz.getMessage());
+    }
+
+    /**
+     * Captura TODOS os cabecalhos do record, nao so ce_id/ce_type — e' o
+     * que permite reprocessar preservando o envelope CloudEvents original
+     * inteiro (ce_specversion, ce_source, ce_time, ce_subject,
+     * ce_datacontenttype), nao so os dois usados para idempotencia/roteamento.
+     */
+    private String todosOsCabecalhos(ConsumerRecord<?, ?> registro) {
+        Map<String, String> cabecalhos = new LinkedHashMap<>();
+        for (Header cabecalho : registro.headers()) {
+            cabecalhos.put(cabecalho.key(), new String(cabecalho.value(), StandardCharsets.UTF_8));
+        }
+        try {
+            return objectMapper.writeValueAsString(cabecalhos);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String extrairPayload(ConsumerRecord<?, ?> registro, Exception raiz) {
