@@ -1,4 +1,4 @@
-# AED 2026/2 — Equipe 04
+﻿# AED 2026/2 — Equipe 04
 
 Projeto da disciplina de Arquitetura de Eventos Distribuídos (AED). O domínio é o processo de venda e embarque de gado de corte para abate: as pesagens e vacinações dos animais são publicadas como eventos e consumidas pelo serviço de manejo.
 
@@ -242,7 +242,13 @@ A deduplicação da DLQ é por posição Kafka (`UNIQUE (origem_topico, particao
 curl http://localhost:8083/api/dlq
 ```
 
-O endpoint é só leitura; o fluxo normal jamais apaga a DLQ — a correção da causa raiz e o reprocessamento manual são decisão humana. Decisão e consequências em [`docs/adr/ADR-006-dlq.md`](docs/adr/ADR-006-dlq.md), endpoint em [`docs/openapi-manejo.yaml`](docs/openapi-manejo.yaml).
+O envelope CloudEvents inteiro capturado do record (nao so ce_id/ce_type) fica gravado na linha, para o reprocessamento poder restaura-lo. Depois de corrigir a causa raiz, reenvie um evento especifico ao topico original:
+
+```bash
+curl -X POST http://localhost:8083/api/dlq/1/reprocessar
+```
+
+Reprocessar nunca altera nem apaga a linha original de `evento_dlq` — cada tentativa vira uma linha em `dlq_reprocessamento`, e a idempotencia por `eventoId` (`evento_processado`) garante que reprocessar o mesmo evento mais de uma vez nao duplica o efeito de negocio. O fluxo normal jamais apaga a DLQ. Decisao e consequencias em [ADR-006](docs/adr/ADR-006-resiliencia.md), endpoints em [`docs/openapi-manejo.yaml`](docs/openapi-manejo.yaml).
 
 ## Testes
 
@@ -282,7 +288,7 @@ O conjunto inclui o teste de idempotência do histórico de pesagens — a entre
 | Assunto | Documento |
 |---|---|
 | Decisão do domínio | [ADR-002](docs/adr/ADR-002-dominio-do-projeto.md) |
-| DLQ permanente do manejo | [ADR-006](docs/adr/ADR-006-dlq.md) |
+| DLQ permanente do manejo + Saga de compensacao | [ADR-006](docs/adr/ADR-006-resiliencia.md) |
 | Contrato de `VacinacaoRegistrada` | [docs/contrato.md](docs/contrato.md) |
 | Contrato de `PesagemRegistrada` | [docs/contrato-pesagem.md](docs/contrato-pesagem.md) |
 | Contrato de `AnimalEmbarcadoParaAbate` | [docs/contrato-embarque.md](docs/contrato-embarque.md) |

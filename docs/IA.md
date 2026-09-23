@@ -93,3 +93,22 @@ Ferramenta usada: Claude (Anthropic), em conversa de apoio à modelagem e ao esq
 **Sugestão da IA:** adicionar `REFERENCES lote(id)` na coluna `lote_id` das duas tabelas novas, para garantir integridade referencial com a tabela `lote` já existente.
 
 **O que recusamos, e por quê:** recusamos. As tabelas de histórico já existentes no projeto (`historico_pesagem`, `historico_vacinacao`) deliberadamente não têm FK para `animal` — são tabelas de fato, não de cadastro, e não deveriam travar a gravação de um evento por causa do estado atual de uma tabela de cadastro (ou, pior, por uma ordem de escrita que ainda não chegou). Seguimos o mesmo padrão para o event store do Lote: manter as duas tabelas desacopladas de `lote` é consistente com o resto do schema, e evitou que o teste de replay (`LoteLocalizacaoServiceTest`) precisasse popular `Fazenda`/`Lote` só para poder gravar eventos com um `loteId` de teste — o teste ficou focado só na lógica do fold, que é o que a aula pede para provar.
+
+
+## Projeto final — Unidade IV (Partes A, B e C)
+
+### Interação 1 — onde marcar que um evento da DLQ foi reprocessado
+
+**Pedido:** decidir como registrar que uma tentativa de reprocessamento aconteceu, depois de implementar `POST /api/dlq/{id}/reprocessar`.
+
+**Sugestão da IA:** adicionar uma coluna `reprocessado_em` (TIMESTAMP) na própria tabela `evento_dlq` e fazer um `UPDATE` nela a cada tentativa.
+
+**O que recusamos, e por quê:** recusamos alterar `evento_dlq`. O próprio ADR-006 já registrava a DLQ como append-only, "nenhuma linha é alterada nem apagada depois de gravada" — fazer `UPDATE` nela pra marcar reprocessamento contradiria esse invariante que a equipe já tinha decidido, mesmo sendo só uma metadado e não o conteúdo do evento em si. Criamos uma tabela separada, `dlq_reprocessamento` (append-only também, uma linha por tentativa), preservando `evento_dlq` intocada e ainda permitindo múltiplas tentativas de reprocessamento do mesmo evento ao longo do tempo, cada uma com seu próprio registro.
+
+### Interação 2 — testar o reprocessamento fim-a-fim
+
+**Pedido:** escrever um teste automatizado provando que `DlqService.reprocessar()` funciona.
+
+**Sugestão da IA:** escrever um teste chamando `dlqService.reprocessar()` diretamente contra um evento gravado na DLQ, verificando que ele reaparece no tópico original — testando o caminho completo, incluindo o envio real ao Kafka.
+
+**O que recusamos, e por quê:** recusamos manter esse teste depois de rodá-lo e ver a suíte inteira falhar com `TimeoutException` — o perfil de teste do `servico-manejo` roda só com H2, sem broker Kafka real, de propósito (`bootstrap-servers` aponta pra um host que nunca responde). Testar o envio real ao Kafka aqui reproduziria exatamente o problema que a suíte já evita para todo publisher do projeto — nenhum serviço de publicação (`PesagemService`, `RejeicaoEmbarqueService` etc.) é testado dessa forma nesta base de código. Reformulamos o teste para cobrir só a parte testável sem rede — que cada tentativa de reprocessamento vira uma linha nova em `dlq_reprocessamento` sem alterar `evento_dlq` — e documentamos a demonstração ponta-a-ponta (evento reaparecendo de verdade) via `curl` no README, contra o serviço rodando com Kafka de verdade.

@@ -58,3 +58,53 @@ ce_time: 2026-08-20T09:15:00Z
 ce_subject: animal/AN-004821
 ce_datacontenttype: application/json
 ```
+
+
+---
+
+# Contrato do evento — `gado.animal.rejeitado-no-embarque.v1`
+
+## Identificação
+
+- **Tipo (CloudEvents `type`):** `gado.animal.rejeitado-no-embarque.v1` -- grafia identica a constante `TYPE` em [`RejeicaoEmbarqueService`](../servico-expedicao/src/main/java/br/pucminas/aed/expedicao/service/RejeicaoEmbarqueService.java) e ao topico Kafka (`demo.topico-rejeicao`).
+- **Classe do publisher:** [`br.pucminas.aed.expedicao.domain.AnimalRejeitadoNoEmbarqueEvent`](../servico-expedicao/src/main/java/br/pucminas/aed/expedicao/domain/AnimalRejeitadoNoEmbarqueEvent.java).
+- **`source`:** `/fazenda-corte/expedicao-service`.
+- **Envelope:** CloudEvents 1.0, modo binario -- mesmo padrao dos demais eventos do projeto: `ce_specversion`, `ce_id`, `ce_source`, `ce_type`, `ce_time` (igual a `ocorridoEm`), `ce_subject` (`animal/{animalId}`), `ce_datacontenttype` (`application/json`).
+
+E' o evento de compensacao da Parte B do projeto final: o caminho de excecao do dominio, ja nomeado desde o ADR-002 -- o Sistema do Frigorifico recusou o animal na triagem de recebimento. A Expedicao registra a recusa de forma definitiva (nunca apagada nem reenviada), e e' a partir deste fato que o `servico-manejo` executa a compensacao (retorno ao lote de origem, reavaliacao de dieta, encerramento da venda que nao se concretizou) -- ver ADR-006, secao "A Saga de compensacao: coreografia".
+
+## Campos
+
+| Campo | Tipo | Obrigatorio | Significado |
+|---|---|---|---|
+| `eventoId` | `String` | Sim | Identificador unico deste evento. Chave de deduplicacao do lado do `servico-manejo` (mesma tabela `evento_processado` usada pelo historico de pesagem e vacinacao) -- nunca deduplica por `animalId`. |
+| `ocorridoEm` | `Instant` (ISO-8601) | Sim | Instante da recusa na triagem do frigorifico (event time), nao quando o `servico-manejo` processou. Vai para o cabecalho `ce_time`. |
+| `animalId` | `String` | Sim | Identifica o animal recusado. E' a chave de particao do topico -- ver secao propria abaixo. |
+| `frigorificoDestino` | `String` | Sim | Frigorifico que recusou o animal na triagem. O `servico-manejo` NAO declara este campo na classe espelhada do consumidor -- a compensacao depende de qual animal e por que foi recusado, nao de qual frigorifico fez a triagem; esse dado interessa so' a auditoria da Expedicao. |
+| `motivoRejeicao` | `String` | Sim | Motivo da recusa. Valores previstos hoje: `PESO_INSUFICIENTE`, `VACINACAO_VENCIDA`. E' String, nao enum fechado -- a Expedicao pode introduzir um motivo novo sem quebrar o contrato; o `servico-manejo` trata qualquer valor fora dos dois conhecidos como `OUTRO` antes de decidir a dieta de reavaliacao. |
+
+## Datas
+
+Mesmo padrao do resto do contrato: `Instant`, serializado como texto ISO-8601, nunca epoch. `ExpedicaoConfig` registra `JavaTimeModule` e desliga `WRITE_DATES_AS_TIMESTAMPS`, igual aos demais publishers do projeto.
+
+## Chave de partição
+
+`animalId`. Garante que a recusa de um animal seja processada respeitando a ordem de fatos daquele MESMO animal em relacao aos outros eventos de nivel-animal do sistema (`PesagemRegistrada`, `VacinacaoRegistrada`) -- ver ADR-003, que documenta essa escolha (chave por `animalId` para o nivel do animal, `loteId` para o nivel do lote) como decisao do sistema inteiro, nao so' deste evento.
+
+## Regra de compatibilidade: **BACKWARD**
+
+Mesma logica do contrato de `VacinacaoRegistrada` acima: o unico consumidor hoje (`RejeicaoEmbarqueListener`, em `servico-manejo`) e' interno a este repositorio e ja' le de forma tolerante (nao declara `frigorificoDestino`). BACKWARD protege o historico ja' publicado sem travar a evolucao do publisher, desde que mudancas sejam aditivas.
+
+## Exemplo de carga (dados fictícios)
+
+```json
+{
+  "eventoId": "evt-rej-2026-000045",
+  "ocorridoEm": "2026-09-20T08:30:00Z",
+  "animalId": "AN-004821",
+  "frigorificoDestino": "Frigorifico Exemplo S.A.",
+  "motivoRejeicao": "VACINACAO_VENCIDA"
+}
+```
+
+Documentação completa da compensação executada pelo `servico-manejo` (os três efeitos, e o que fica fora de escopo) em [`docs/contrato-rejeicao-embarque.md`](contrato-rejeicao-embarque.md).
